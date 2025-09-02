@@ -238,6 +238,18 @@ class URDFLoader(BaseManipulator):
     ) -> None:
         pass
 
+    def control_gripper(self, open_command: float, **kwargs: Any) -> None:
+        """
+        Override to safely no-op when no gripper joint is configured.
+        """
+        try:
+            if getattr(self, "GRIPPER_JOINT_INDEX", -1) < 0:
+                return
+        except Exception:
+            return
+        # Fallback to base implementation if a valid gripper index exists
+        super().control_gripper(open_command, **kwargs)
+
     def read_group_motor_position(self) -> np.ndarray:
         return np.zeros(len(self.SERVO_IDS), dtype=np.int32)
 
