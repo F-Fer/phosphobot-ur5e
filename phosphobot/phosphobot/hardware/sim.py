@@ -138,7 +138,7 @@ class PyBulletSimulation:
         self.robots.clear()
         logger.info("Simulation reset")
 
-    def step(self, steps: int = 960) -> None:
+    def step(self, steps: int = 120) -> None:
         """
         Step the simulation environment.
 
@@ -248,6 +248,8 @@ class PyBulletSimulation:
                     f"Joint {i} is not revolute, type: {joint_type} - skipping"
                 )
 
+        logger.info(f"Loaded {len(actuated_joints)} actuated joints")
+
         # Store robot info
         self.robots[robot_id] = {
             "urdf_path": urdf_path,
@@ -303,7 +305,7 @@ class PyBulletSimulation:
         end_effector_link_index: int,
         target_position,
         target_orientation,
-        rest_poses: List,
+        rest_poses: Optional[List] = None,
         joint_damping: Optional[List] = None,
         lower_limits: Optional[List] = None,
         upper_limits: Optional[List] = None,
@@ -335,6 +337,23 @@ class PyBulletSimulation:
                 "Simulation is not connected, cannot perform inverse kinematics"
             )
             return []
+
+        # Minimal, safer IK call: no limits/damping/rest poses
+        if (
+            rest_poses is None
+            and joint_damping is None
+            and lower_limits is None
+            and upper_limits is None
+            and joint_ranges is None
+        ):
+            return p.calculateInverseKinematics(
+                robot_id,
+                end_effector_link_index,
+                targetPosition=target_position,
+                targetOrientation=target_orientation,
+                maxNumIterations=max_num_iterations,
+                residualThreshold=residual_threshold,
+            )
 
         if joint_damping is None:
             return p.calculateInverseKinematics(

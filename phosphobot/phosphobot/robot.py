@@ -13,6 +13,7 @@ from phosphobot.configs import config
 from phosphobot.hardware import (
     BaseRobot,
     URDFLoader,
+    UR5eHardware,
     KochHardware,
     LeKiwi,
     PiperHardware,
@@ -28,6 +29,7 @@ from phosphobot.utils import is_can_plugged, get_resources_path
 rcm = None
 
 robot_name_to_class = {
+    UR5eHardware.name: UR5eHardware,
     SO100Hardware.name: SO100Hardware,
     KochHardware.name: KochHardware,
     WX250SHardware.name: WX250SHardware,

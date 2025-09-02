@@ -557,30 +557,40 @@ class BaseManipulator(BaseRobot):
         #     target_q_rad = list(target_q_rad)
         #     target_q_rad[5] = rx  # Set the rx coordinate
         else:
-            # We removed the limits because they made the inverse kinematics fail.
-            # The robot couldn't go to its left.
-            # The limits of the URDF are, however, already respected. Overall,
-            # the robot moves more freely without the limits.
-            # Let this be a lesson #ThierryBreton
-
+            # For generic URDFLoader or unknown robots, call a SAFE IK without joint limits.
+            # Passing full URDF joint arrays (including fixed/prismatic) can crash the GUI server.
             target_q_rad = self.sim.inverse_kinematics(
                 robot_id=self.p_robot_id,
                 end_effector_link_index=self.END_EFFECTOR_LINK_INDEX,
                 target_position=target_position_cartesian,
                 target_orientation=target_orientation_quaternions,
-                rest_poses=[0] * len(self.lower_joint_limits),
-                joint_damping=[0.001] * len(self.lower_joint_limits),
-                lower_limits=self.lower_joint_limits,
-                upper_limits=self.upper_joint_limits,
-                joint_ranges=[
-                    abs(up - low)
-                    for up, low in zip(self.upper_joint_limits, self.lower_joint_limits)
-                ],
+                rest_poses=None,
+                joint_damping=None,
+                lower_limits=None,
+                upper_limits=None,
+                joint_ranges=None,
                 max_num_iterations=180,
                 residual_threshold=1e-6,
             )
 
-        return np.array(target_q_rad)[np.array(self.actuated_joints)]
+        target_q_rad_np = np.array(target_q_rad)
+        # If IK returns exactly one value per actuated joint, use it directly
+        if target_q_rad_np.shape[0] == len(self.actuated_joints):
+            return target_q_rad_np
+        # If IK returns a vector indexed by pybullet joint indices, select actuated ones
+        if target_q_rad_np.shape[0] > max(self.actuated_joints):
+            return target_q_rad_np[np.array(self.actuated_joints)]
+        # Fallback: truncate/pad to match actuated dof to avoid index errors
+        from numpy import pad as np_pad  # local import to avoid polluting module
+        if target_q_rad_np.shape[0] < len(self.actuated_joints):
+            target_q_rad_np = np_pad(
+                target_q_rad_np,
+                (0, len(self.actuated_joints) - target_q_rad_np.shape[0]),
+                mode="edge",
+            )
+        else:
+            target_q_rad_np = target_q_rad_np[: len(self.actuated_joints)]
+        return target_q_rad_np
 
     def forward_kinematics(
         self, sync_robot_pos: bool = False
@@ -705,7 +715,8 @@ class BaseManipulator(BaseRobot):
             # If the robot is not connected, we use the pybullet simulation
             # Retrieve joint angles using getJointStates
             if joints_ids is None:
-                joints_ids = list(range(self.num_actuated_joints))
+                # Use actuated joint indices order as stored by the simulator
+                joints_ids = self.actuated_joints
 
             current_position_rad = np.zeros(len(joints_ids))
 
@@ -789,17 +800,18 @@ class BaseManipulator(BaseRobot):
                     # Write goal position
                     self.write_motor_position(servo_id=servo_id, units=q_target[i])
 
-        # Filter out the gripper_joint_index
+        # Build joint indices and target positions aligned by actuated joint order
         if not enable_gripper:
-            joint_indices = [
-                i for i in self.actuated_joints if i != self.GRIPPER_JOINT_INDEX
-            ]
-            target_positions = [
-                q_target_rad[i] for i in joint_indices if i != self.GRIPPER_JOINT_INDEX
+            pairs = [
+                (ik_idx, pb_joint_idx)
+                for ik_idx, pb_joint_idx in enumerate(self.actuated_joints)
+                if pb_joint_idx != self.GRIPPER_JOINT_INDEX
             ]
         else:
-            joint_indices = self.actuated_joints
-            target_positions = q_target_rad.tolist()
+            pairs = list(enumerate(self.actuated_joints))
+
+        joint_indices = [pb_idx for _, pb_idx in pairs]
+        target_positions = [float(q_target_rad[ik_idx]) for ik_idx, _ in pairs]
 
         self.sim.set_joints_states(
             robot_id=self.p_robot_id,
@@ -972,6 +984,15 @@ class BaseManipulator(BaseRobot):
                 line_width=2,
                 life_time=3,
             )
+
+        # Clamp target position to a conservative workspace to avoid IK explosions
+        # Limits are in meters, relative to the world frame
+        try:
+            safe_min = np.array([-1.0, -1.0, 0.0], dtype=float)
+            safe_max = np.array([1.0, 1.0, 1.2], dtype=float)
+            target_position = np.clip(target_position.astype(float), safe_min, safe_max)
+        except Exception:
+            pass
 
         if target_orientation_rad is not None:
             # Create rotation object from Euler angles

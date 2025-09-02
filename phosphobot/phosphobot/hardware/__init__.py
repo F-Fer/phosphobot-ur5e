@@ -9,3 +9,4 @@ from .so100 import SO100Hardware
 from .wx250s import WX250SHardware
 from .phosphobot import RemotePhosphobot
 from .urdfloader import URDFLoader
+from .ur5e import UR5eHardware
