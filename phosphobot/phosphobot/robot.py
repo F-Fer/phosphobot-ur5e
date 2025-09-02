@@ -28,6 +28,7 @@ from phosphobot.utils import is_can_plugged
 rcm = None
 
 robot_name_to_class = {
+    UR5eHardware.name: UR5eHardware,
     SO100Hardware.name: SO100Hardware,
     KochHardware.name: KochHardware,
     WX250SHardware.name: WX250SHardware,
