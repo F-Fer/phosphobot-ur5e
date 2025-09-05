@@ -163,6 +163,65 @@ class UR5eHardware(BaseRobot):
         pose = [x, y, z, rx, ry, rz]                   # meters / rotvec (rad)
         self.rtde_ctrl.moveL(pose, speed_m_s, acc_m_s2)
 
+    async def move_robot_relative(
+        self,
+        target_position: np.ndarray,  # delta in meters, elements may be None
+        target_orientation_rad: Optional[np.ndarray],  # delta Euler radians, elements may be None
+        step_time_s: float = 0.05,
+        acc_m_s2: float = 0.5,
+    ) -> None:
+        """
+        Discrete relative motion using servoL.
+
+        - Computes an absolute target: current TCP pose + delta
+        - Commands a short servo step (no background thread, no manual stop)
+        - Repeated calls while a key is held feel continuous
+        """
+        self._raise_if_not_connected()
+
+        # Read current pose (x,y,z, rotvec)
+        curr = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
+        pos = curr[:3]
+        rotvec = curr[3:6]
+
+        # Position delta (meters)
+        dx, dy, dz = [float(v) if v is not None else 0.0 for v in target_position]
+        new_pos = pos + np.array([dx, dy, dz], dtype=float)
+
+        # Orientation composition: R_new = R_curr * R_delta
+        R_curr = R.from_rotvec(rotvec)
+        if target_orientation_rad is not None:
+            d_euler = np.array([
+                float(v) if (v is not None and not np.isnan(v)) else 0.0
+                for v in target_orientation_rad
+            ], dtype=float)
+            R_delta = R.from_euler("xyz", d_euler)
+            R_new = R_curr * R_delta
+        else:
+            R_new = R_curr
+
+        new_rotvec = R_new.as_rotvec()
+
+        # Clamp the step time to a small, stable range
+        t = float(np.clip(step_time_s, 0.02, 0.1))
+
+        # Conservative speed limit for the servo step
+        v_lin = 0.3  # m/s
+        a_lin = float(np.clip(acc_m_s2, 0.2, 1.0))
+
+        pose = [
+            float(new_pos[0]),
+            float(new_pos[1]),
+            float(new_pos[2]),
+            float(new_rotvec[0]),
+            float(new_rotvec[1]),
+            float(new_rotvec[2]),
+        ]
+
+        # servoL(pose, a, v, t=0, lookahead_time=0.1, gain=300)
+        # Use small t so a single call performs a short step and then stops
+        self.rtde_ctrl.servoL(pose, a_lin, v_lin, t, 0.1, 300)
+
     def from_port(cls, port: ListPortInfo, **kwargs) -> Optional["BaseRobot"]:
         """
         Return the robot class from the port information.
