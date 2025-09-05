@@ -7,6 +7,7 @@ import rtde_receive
 import rtde_io 
 import asyncio
 from serial.tools.list_ports_common import ListPortInfo
+from scipy.spatial.transform import Rotation as R
 
 from phosphobot.hardware.base import BaseRobot
 from phosphobot.models import RobotConfigStatus
@@ -150,14 +151,16 @@ class UR5eHardware(BaseRobot):
         """
         self._raise_if_not_connected()
         if target_orientation_rad is None:
-            # Keep current orientation
+            # Keep current orientation (UR expects rotation vector)
             current_pose = self.rtde_rec.getActualTCPPose()
             rx, ry, rz = current_pose[3], current_pose[4], current_pose[5]
         else:
-            rx, ry, rz = [float(x) for x in target_orientation_rad]
+            # Convert Euler radians (xyz) to rotation vector for UR
+            rotvec = R.from_euler("xyz", target_orientation_rad).as_rotvec()
+            rx, ry, rz = float(rotvec[0]), float(rotvec[1]), float(rotvec[2])
 
         x, y, z = [float(v) for v in target_position]
-        pose = [x, y, z, rx, ry, rz]                   # meters / radians
+        pose = [x, y, z, rx, ry, rz]                   # meters / rotvec (rad)
         self.rtde_ctrl.moveL(pose, speed_m_s, acc_m_s2)
 
     def from_port(cls, port: ListPortInfo, **kwargs) -> Optional["BaseRobot"]:
@@ -186,6 +189,13 @@ class UR5eHardware(BaseRobot):
         self._raise_if_not_connected()
         q_home = [-0.079, -1.98, 2.03, 3.70, -1.58, -4.78]
         self.rtde_ctrl.moveJ(q_home, 0.4, 0.6)
+        # Record initial TCP pose for control zeroing
+        pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
+        position = pose[:3]
+        rotvec = pose[3:6]
+        euler_xyz = R.from_rotvec(rotvec).as_euler("xyz")
+        self.initial_position = position
+        self.initial_orientation_rad = euler_xyz
 
     async def move_to_sleep(self) -> None:
         """
@@ -203,3 +213,16 @@ class UR5eHardware(BaseRobot):
     def _raise_if_not_connected(self):
         if not self.is_connected:
             raise Exception("Robot is not connected")
+
+    def forward_kinematics(self, sync_robot_pos: bool = False) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Return the end-effector position (meters) and orientation (Euler xyz radians)
+        using the UR controller's current TCP pose. The sync_robot_pos argument is
+        accepted for API compatibility and ignored for UR RTDE.
+        """
+        self._raise_if_not_connected()
+        pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
+        position = pose[:3]
+        rotvec = pose[3:6]
+        euler_xyz = R.from_rotvec(rotvec).as_euler("xyz")
+        return position, euler_xyz
