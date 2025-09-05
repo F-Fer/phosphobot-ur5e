@@ -48,6 +48,7 @@ dependencies = [
     "wasmtime>=33.0.0",
     "async-property>=0.2.2",
     "pyzmq>=27.0.2",
+    "ur-rtde>=1.6.2",
 ]
 
 [dependency-groups]

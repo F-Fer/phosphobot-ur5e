@@ -2,160 +2,197 @@ from typing import Any, Optional
 
 import numpy as np
 from loguru import logger
+import rtde_control
+import rtde_receive
+import rtde_io 
+import asyncio
+from serial.tools.list_ports_common import ListPortInfo
 
-from phosphobot.hardware.base import BaseManipulator
+from phosphobot.hardware.base import BaseRobot
 from phosphobot.models import RobotConfigStatus
-from phosphobot.utils import get_resources_path
+from phosphobot.models.lerobot_dataset import BaseRobotInfo, FeatureDetails
 
 
-class UR5eHardware(BaseManipulator):
-    name = "ur5e"
 
-    URDF_FILE_PATH = str(
-        get_resources_path() / "urdf" / "ur5e" / "urdf" / "ur5e.urdf"
-    )
+class UR5eHardware(BaseRobot):
+    name: str = "ur5e"
+    is_connected: bool
+    is_moving: bool
+    with_gripper: bool
 
-    # World orientation (x, y, z, w) quaternion used to place the base in sim
-    AXIS_ORIENTATION = [0, 0, 0, 1]
-
-    # Default: no gripper in URDF
-    END_EFFECTOR_LINK_INDEX = 8  # will be corrected at runtime if needed
-    GRIPPER_JOINT_INDEX = -1
-
-    # Kinematic resolution placeholders (unused for RTDE path)
-    RESOLUTION = 4096
-    SERVO_IDS = [0, 1, 2, 3, 4, 5]
-    CALIBRATION_POSITION = [0.0, -1.57, 1.57, -1.57, 1.57, 0.0]
-
-    def __init__(
-        self,
-        only_simulation: bool = False,
-        host: str = "192.168.0.2",
-        speed: float = 0.3,
-        acc: float = 0.6,
-        **kwargs: Any,
-    ) -> None:
-        # Store HW params first
-        self.only_simulation = only_simulation
-        self.host = host
-        self.speed = float(speed)
-        self.acc = float(acc)
-
-        # RTDE objects
-        self.ctrl = None
-        self.recv = None
-
-        # Initialize simulation (loads URDF, sets self.p_robot_id, self.actuated_joints)
-        super().__init__(only_simulation=True if only_simulation else False, **kwargs)
-
-        # Try to auto-detect the end-effector link index by name when possible
-        try:
-            import pybullet as p  # type: ignore
-
-            num_joints = p.getNumJoints(self.p_robot_id)
-            ee_candidates = {b"tool0", b"flange", b"wrist_3_link"}
-            for i in range(num_joints):
-                info = self.sim.get_joint_info(self.p_robot_id, i)
-                link_name = info[12] if len(info) > 12 else b""
-                if link_name in ee_candidates:
-                    self.END_EFFECTOR_LINK_INDEX = i
-            logger.debug(
-                f"UR5e END_EFFECTOR_LINK_INDEX set to {self.END_EFFECTOR_LINK_INDEX}"
-            )
-        except Exception:
-            pass
-
-    async def connect(self) -> None:
-        if self.only_simulation:
-            self.is_connected = False
-            logger.info("UR5e running in simulation-only mode; skipping RTDE connect.")
-            return
-
-        try:
-            # Lazy import to avoid hard dependency when sim-only
-            from ur_rtde import rtde_control, rtde_receive  # type: ignore
-
-            self.ctrl = rtde_control.RTDEControlInterface(self.host)
-            self.recv = rtde_receive.RTDEReceiveInterface(self.host)
-            self.is_connected = True
-            self.init_config()
-            logger.success(f"Connected to UR5e at {self.host}")
-        except Exception as e:
-            self.is_connected = False
-            logger.error(f"Failed to connect to UR5e at {self.host}: {e}")
-            raise
-
-    def disconnect(self) -> None:
-        try:
-            if self.ctrl is not None:
-                self.ctrl.disconnect()
-        except Exception:
-            pass
-        try:
-            if self.recv is not None:
-                self.recv.disconnect()
-        except Exception:
-            pass
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.name = "ur5e"
         self.is_connected = False
-
-    def status(self) -> RobotConfigStatus:
-        return RobotConfigStatus(name=self.name, device_name=self.host, temperature=None)
-
-    def read_joints_position(
-        self,
-        unit: str = "rad",
-        source: str = "robot",
-        joints_ids: Optional[list[int]] = None,
-        min_value: Optional[float] = None,
-        max_value: Optional[float] = None,
-    ) -> np.ndarray:
-        # If hardware connected and source is robot, read RTDE
-        if source == "robot" and self.is_connected and self.recv is not None:
-            try:
-                q = np.array(self.recv.getActualQ(), dtype=float)
-                if unit == "degrees":
-                    return np.rad2deg(q)
-                return q
-            except Exception as e:
-                logger.warning(f"RTDE read_joints_position failed: {e}; falling back to sim")
-        # Fallback to base behavior (sim)
-        return super().read_joints_position(
-            unit=unit, source="sim", joints_ids=joints_ids, min_value=min_value, max_value=max_value
-        )
+        self.is_moving = False
+        self.with_gripper = False
+        self.num_joints = 6
+        self.robot_ip = kwargs.get("host", "192.168.1.10")
+        # Interfaces will be created in connect()
+        self.rtde_ctrl = None
+        self.rtde_rec = None
+        self.rtde_inout = None
+        # Conservative defaults (joint space)
+        self.speed = float(kwargs.get("speed", 0.5))  # rad/s for moveJ
+        self.acc = float(kwargs.get("acc", 0.5))      # rad/s^2 for moveJ
+        self.connect()
 
     def set_motors_positions(
         self, q_target_rad: np.ndarray, enable_gripper: bool = False
     ) -> None:
-        # Send to hardware if connected
-        if self.is_connected and self.ctrl is not None:
-            try:
-                self.ctrl.moveJ(q_target_rad.tolist(), self.speed, self.acc)
-            except Exception as e:
-                logger.warning(f"RTDE moveJ failed: {e}")
+        """
+        Set the motor positions of the robot in radians.
+        """
 
-        # Always update simulation for visualization
-        super().set_motors_positions(q_target_rad=q_target_rad, enable_gripper=False)
+        q = np.asarray(q_target_rad, dtype=float).tolist()
+        self.rtde_ctrl.moveJ(q, self.speed, self.acc)  # rad/s, rad/s^2
 
-    async def move_to_initial_position(self) -> None:
-        # Safe tuck pose
-        q = np.array([0.0, -1.57, 1.57, -1.57, 1.57, 0.0], dtype=float)
-        self.set_motors_positions(q_target_rad=q, enable_gripper=False)
-        # Cache initial pose for absolute moves
-        pos, orn = self.forward_kinematics()
-        self.initial_position = pos
-        self.initial_orientation_rad = orn
+    def get_info_for_dataset(self) -> BaseRobotInfo:
+        """
+        Generate information about the robot useful for the dataset.
+        Return a BaseRobotInfo object. (see models.dataset.BaseRobotInfo)
+        Dict returned is info.json file at initialization
+        """
 
-    async def move_to_sleep(self) -> None:
-        q = np.array([0.0, -2.3, 1.8, -1.5, 1.5, 0.0], dtype=float)
-        self.set_motors_positions(q_target_rad=q, enable_gripper=False)
+        if self.with_gripper:
+            num_joints = self.num_joints
+        else:
+            num_joints = self.num_joints - 1
+
+        return BaseRobotInfo(
+            robot_type="ur5e",
+            action=FeatureDetails(
+                dtype="float32",
+                shape=[num_joints],
+                names=[f"motor_{i}" for i in range(num_joints)],
+            ),
+            observation_state=FeatureDetails(
+                dtype="float32",
+                shape=[num_joints],
+                names=[f"motor_{i}" for i in range(num_joints)],
+            ),
+        )
+
+    def get_observation(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Get the observation of the robot.
+        This method should return the observation of the robot.
+        Will be used to build an observation in a Step of an episode.
+        Returns:
+            - state: np.array state of the robot (7D)
+            - joints_position: np.array joints position of the robot
+        """
+        joints_position = np.asarray(self.rtde_rec.getActualQ(), dtype=float)
+        tcp_pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
+        logger.debug(f"q: {joints_position}, tcp: {tcp_pose}")
+        return joints_position, tcp_pose
+
+    async def connect(self) -> None:
+        """
+        Initialize communication with the robot.
+
+        This method is called after the __init__ method.
+
+        raise: Exception if the setup fails. For example, if the robot is not plugged in.
+            This Exception will be caught by the __init__ method.
+        """
+        # Create interfaces
+        self.rtde_ctrl = rtde_control.RTDEControlInterface(self.robot_ip)
+        self.rtde_rec  = rtde_receive.RTDEReceiveInterface(self.robot_ip)
+        self.rtde_inout = rtde_io.RTDEIOInterface(self.robot_ip)
+
+        self.is_connected = True
+        logger.info("UR5e RTDE connected.")
+
+    def disconnect(self) -> None:
+        """
+        Close the connection to the robot.
+
+        This method is called on __del__ to disconnect the robot.
+        """
+        try:
+            if self.rtde_ctrl: self.rtde_ctrl.disconnect()
+            if self.rtde_rec:  self.rtde_rec.disconnect()
+            if self.rtde_inout: self.rtde_inout.disconnect()
+        finally:
+            self.is_connected = False
+            logger.info("UR5e RTDE disconnected.")
+
+    def init_config(self) -> None:
+        """
+        Initialize the robot configuration.
+        """
+        pass
 
     def enable_torque(self) -> None:
-        # UR RTDE uses trajectory commands; no explicit torque enable
-        return
+        """
+        Enable the torque of the robot.
+        """
+        pass
 
     def disable_torque(self) -> None:
-        try:
-            if self.is_connected and self.ctrl is not None:
-                self.ctrl.stopJ(0.5)
-        except Exception:
-            pass
+        """
+        Disable the torque of the robot.
+        """
+        pass
+
+    async def move_robot_absolute(
+        self,
+        target_position: np.ndarray,  # cartesian np.array
+        target_orientation_rad: Optional[np.ndarray],  # rad np.array
+        speed_m_s: float = 0.05,
+        acc_m_s2: float = 0.2,
+        **kwargs,
+    ) -> None:
+        """
+        Move the robot to the target position and orientation.
+        This method should be implemented by the robot class.
+        """
+        if target_orientation_rad is None:
+            # Keep current orientation
+            current_pose = self.rtde_rec.getActualTCPPose()
+            rx, ry, rz = current_pose[3], current_pose[4], current_pose[5]
+        else:
+            rx, ry, rz = [float(x) for x in target_orientation_rad]
+
+        x, y, z = [float(v) for v in target_position]
+        pose = [x, y, z, rx, ry, rz]                   # meters / radians
+        self.rtde_ctrl.moveL(pose, speed_m_s, acc_m_s2)
+
+    def from_port(cls, port: ListPortInfo, **kwargs) -> Optional["BaseRobot"]:
+        """
+        Return the robot class from the port information.
+        """
+        logger.warning(
+            f"For automatic detection of {cls.__name__}, the method from_port must be implemented. Skipping autodetection."
+        )
+        return None
+
+    def status(self) -> RobotConfigStatus:
+        return RobotConfigStatus(
+            name=self.name,
+            device_name=getattr(self, "SERIAL_ID", None),
+        )
+
+    async def move_to_initial_position(self) -> None:
+        """
+        Move the robot to its initial position.
+        The initial position is a safe position for the robot, where it is moved before starting the calibration.
+        This method should be implemented by the robot class.
+
+        This should update self.initial_position  and self.initial_orientation_rad
+        """
+        q_home = [-0.079, -1.98, 2.03, 3.70, -1.58, -4.78]
+        self.rtde_ctrl.moveJ(q_home, 0.4, 0.6)
+
+    async def move_to_sleep(self) -> None:
+        """
+        Move the robot to its sleep position.
+        The sleep position is a safe position for the robot, where it is moved before disabling the motors.
+        This method should be implemented by the robot class.
+        """
+        q_home = [-0.079, -1.98, 2.03, 3.70, -1.58, -4.78]
+        self.rtde_ctrl.moveJ(q_home, 0.4, 0.6)
+
+    def move_to_sleep_sync(self):
+        asyncio.run(self.move_to_sleep())
