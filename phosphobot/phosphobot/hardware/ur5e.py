@@ -20,14 +20,14 @@ class UR5eHardware(BaseRobot):
     is_moving: bool
     with_gripper: bool
 
-    def __init__(self, **kwargs):
+    def __init__(self, ip: str = "192.168.1.10", **kwargs):
         super().__init__(**kwargs)
         self.name = "ur5e"
         self.is_connected = False
         self.is_moving = False
         self.with_gripper = False
         self.num_joints = 6
-        self.robot_ip = kwargs.get("host", "192.168.1.10")
+        self.robot_ip = ip
         # Interfaces will be created in connect()
         self.rtde_ctrl = None
         self.rtde_rec = None
@@ -35,7 +35,6 @@ class UR5eHardware(BaseRobot):
         # Conservative defaults (joint space)
         self.speed = float(kwargs.get("speed", 0.5))  # rad/s for moveJ
         self.acc = float(kwargs.get("acc", 0.5))      # rad/s^2 for moveJ
-        self.connect()
 
     def set_motors_positions(
         self, q_target_rad: np.ndarray, enable_gripper: bool = False
@@ -43,7 +42,7 @@ class UR5eHardware(BaseRobot):
         """
         Set the motor positions of the robot in radians.
         """
-
+        self._raise_if_not_connected()
         q = np.asarray(q_target_rad, dtype=float).tolist()
         self.rtde_ctrl.moveJ(q, self.speed, self.acc)  # rad/s, rad/s^2
 
@@ -82,6 +81,7 @@ class UR5eHardware(BaseRobot):
             - state: np.array state of the robot (7D)
             - joints_position: np.array joints position of the robot
         """
+        self._raise_if_not_connected()
         joints_position = np.asarray(self.rtde_rec.getActualQ(), dtype=float)
         tcp_pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
         logger.debug(f"q: {joints_position}, tcp: {tcp_pose}")
@@ -148,6 +148,7 @@ class UR5eHardware(BaseRobot):
         Move the robot to the target position and orientation.
         This method should be implemented by the robot class.
         """
+        self._raise_if_not_connected()
         if target_orientation_rad is None:
             # Keep current orientation
             current_pose = self.rtde_rec.getActualTCPPose()
@@ -182,6 +183,7 @@ class UR5eHardware(BaseRobot):
 
         This should update self.initial_position  and self.initial_orientation_rad
         """
+        self._raise_if_not_connected()
         q_home = [-0.079, -1.98, 2.03, 3.70, -1.58, -4.78]
         self.rtde_ctrl.moveJ(q_home, 0.4, 0.6)
 
@@ -191,8 +193,13 @@ class UR5eHardware(BaseRobot):
         The sleep position is a safe position for the robot, where it is moved before disabling the motors.
         This method should be implemented by the robot class.
         """
+        self._raise_if_not_connected()
         q_home = [-0.079, -1.98, 2.03, 3.70, -1.58, -4.78]
         self.rtde_ctrl.moveJ(q_home, 0.4, 0.6)
 
     def move_to_sleep_sync(self):
         asyncio.run(self.move_to_sleep())
+
+    def _raise_if_not_connected(self):
+        if not self.is_connected:
+            raise Exception("Robot is not connected")

@@ -59,6 +59,13 @@ const ROBOT_TYPES: RobotType[] = [
     ],
   },
   {
+    id: "ur5e",
+    name: "UR 5e",
+    category: "manipulator",
+    image: placeholderSvg,
+    fields: [{ name: "ip", label: "IP Address", type: "ip" }],
+  },
+  {
     id: "unitree-go2",
     name: "Unitree Go2",
     category: "mobile",
