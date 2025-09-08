@@ -12,7 +12,7 @@ from scipy.spatial.transform import Rotation as R
 from phosphobot.hardware.base import BaseRobot
 from phosphobot.models import RobotConfigStatus
 from phosphobot.models.lerobot_dataset import BaseRobotInfo, FeatureDetails
-
+from phosphobot.hardware.utils.robotiq_gripper import RobotiqGripper
 
 
 class UR5eHardware(BaseRobot):
@@ -26,7 +26,7 @@ class UR5eHardware(BaseRobot):
         self.name = "ur5e"
         self.is_connected = False
         self.is_moving = False
-        self.with_gripper = False
+        self.with_gripper = True
         self.num_joints = 6
         self.robot_ip = ip
         # Interfaces will be created in connect()
@@ -36,6 +36,9 @@ class UR5eHardware(BaseRobot):
         # Conservative defaults (joint space)
         self.speed = float(kwargs.get("speed", 0.5))  # rad/s for moveJ
         self.acc = float(kwargs.get("acc", 0.5))      # rad/s^2 for moveJ
+        self.gripper = RobotiqGripper()
+        self.gripper_speed = 255
+        self.gripper_force = 255
 
     def set_motors_positions(
         self, q_target_rad: np.ndarray, enable_gripper: bool = False
@@ -101,6 +104,8 @@ class UR5eHardware(BaseRobot):
         self.rtde_ctrl = rtde_control.RTDEControlInterface(self.robot_ip)
         self.rtde_rec  = rtde_receive.RTDEReceiveInterface(self.robot_ip)
         self.rtde_inout = rtde_io.RTDEIOInterface(self.robot_ip)
+        self.gripper.connect(self.robot_ip, 63352)
+        self.gripper.activate()
 
         self.is_connected = True
         logger.info("UR5e RTDE connected.")
@@ -222,6 +227,18 @@ class UR5eHardware(BaseRobot):
         # Use small t so a single call performs a short step and then stops
         self.rtde_ctrl.servoL(pose, a_lin, v_lin, t, 0.1, 300)
 
+    def control_gripper(self, open_command: float) -> None:
+        """
+        Control the gripper.
+        """
+
+        open_command = int(open_command * 255)
+        open_command = np.clip(open_command, 0, 255)
+        try: 
+            self.gripper.move(open_command, self.gripper_speed, self.gripper_force)
+        except Exception as e:
+            logger.error(f"Error controlling gripper: {e}")
+
     def from_port(cls, port: ListPortInfo, **kwargs) -> Optional["BaseRobot"]:
         """
         Return the robot class from the port information.
@@ -248,6 +265,7 @@ class UR5eHardware(BaseRobot):
         self._raise_if_not_connected()
         q_home = [-0.079, -1.98, 2.03, 3.70, -1.58, -4.78]
         self.rtde_ctrl.moveJ(q_home, 0.4, 0.6)
+        self.gripper.move_and_wait_for_pos(self.gripper.get_open_position(), self.gripper_speed, self.gripper_force)
         # Record initial TCP pose for control zeroing
         pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
         position = pose[:3]
