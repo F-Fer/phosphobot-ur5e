@@ -25,7 +25,10 @@ class UR5eHardware(BaseManipulator):
     GRIPPER_JOINT_INDEX = -1     # no simulated gripper joint
 
     SERVO_IDS = [1, 2, 3, 4, 5, 6]
+    SLEEP_POSITION = [-0.079, -1.98, 2.03, 3.70, -1.58, -4.78]
     RESOLUTION = 4096
+
+    with_gripper = True
 
     def __init__(
         self,
@@ -97,19 +100,11 @@ class UR5eHardware(BaseManipulator):
         pass
 
     def read_motor_torque(self, servo_id: int) -> Optional[float]:
-        """
-        Read the torque of a motor
-
-        raise: Exception if the routine has not been implemented
-        """
+        # Not used
         pass
 
     def read_motor_voltage(self, servo_id: int) -> Optional[float]:
-        """
-        Read the voltage of a motor
-
-        raise: Exception if the routine has not been implemented
-        """
+        # Not used
         pass
 
     def write_motor_position(self, servo_id: int, units: int, **kwargs: Any) -> None:
@@ -118,44 +113,11 @@ class UR5eHardware(BaseManipulator):
 
     def read_motor_position(self, servo_id: int, **kwargs: Any) -> Optional[int]:
         # Not used
-        return None
-
-    def calibrate_motors(self, **kwargs: Any) -> None:
         pass
 
-    def read_group_motor_position(self) -> np.ndarray:
-        # For BaseManipulator compatibility when reading from "robot"
-        if not self.is_connected or self.rtde_rec is None:
-            return np.ones(len(self.SERVO_IDS)) * np.nan
-        try:
-            q = np.asarray(self.rtde_rec.getActualQ(), dtype=float)
-            # Convert rad -> motor units using BaseManipulator mapping
-            if self.config is None:
-                return np.ones(len(self.SERVO_IDS)) * np.nan
-            return self._radians_vec_to_motor_units(q)
-        except Exception as e:
-            logger.warning(f"read_group_motor_position failed: {e}")
-            return np.ones(len(self.SERVO_IDS)) * np.nan
-
-    def write_group_motor_position(self, q_target: np.ndarray, enable_gripper: bool) -> None:
-        # q_target is in motor units per BaseManipulator. For UR, convert to radians and call moveJ
-        if not self.is_connected or self.rtde_ctrl is None:
-            return
-        try:
-            q_rad = self._units_vec_to_radians(np.asarray(q_target, dtype=float)).tolist()
-            self.rtde_ctrl.moveJ(q_rad, self.speed, self.acc)
-        except Exception as e:
-            logger.warning(f"write_group_motor_position failed: {e}")
-
-    def set_motors_positions(self, q_target_rad: np.ndarray, enable_gripper: bool = False) -> None:
-        # Override to directly command UR and sync simulation
-        if self.is_connected and self.rtde_ctrl is not None:
-            try:
-                self.rtde_ctrl.moveJ(np.asarray(q_target_rad, dtype=float).tolist(), self.speed, self.acc)
-            except Exception as e:
-                logger.warning(f"moveJ failed: {e}")
-        # Always mirror to sim
-        super().set_motors_positions(q_target_rad=q_target_rad, enable_gripper=enable_gripper)
+    def calibrate_motors(self, **kwargs: Any) -> None:
+        # Not used
+        pass
 
     def control_gripper(self, open_command: float, **kwargs: Any) -> None:
         # Open/close Robotiq on UR controller; also mirror to sim if needed (no sim gripper for UR5e)
@@ -168,14 +130,25 @@ class UR5eHardware(BaseManipulator):
                 logger.error(f"Error controlling gripper: {e}")
 
     def get_observation(self) -> tuple[np.ndarray, np.ndarray]:
-        # Match BaseRobot signature used elsewhere in the app
-        if not self.is_connected or self.rtde_rec is None:
-            # Fall back to sim via BaseManipulator
-            return super().get_observation(do_forward=True)
-        joints_position = np.asarray(self.rtde_rec.getActualQ(), dtype=float)
-        tcp_pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
-        logger.debug(f"q: {joints_position}, tcp: {tcp_pose}")
-        return joints_position, tcp_pose
+        """
+        Return (state, joints_position).
+
+        For pi0 training we use joint angles as the state. So we return
+        joint angles for both entries.
+        """
+        if self.is_connected and self.rtde_rec is not None:
+            # First get the joint positions
+            joints_position = np.asarray(self.rtde_rec.getActualQ(), dtype=float)
+            gripper_position = self.gripper.get_position()/255
+            joints_position = np.append(joints_position, self.gripper.get_position()/255)
+            # Then get the state
+            tcp_pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
+            state = np.concatenate((tcp_pose, gripper_position))
+        else:
+            # Read from simulation if not connected
+            joints_position = self.read_joints_position(unit="rad", source="sim")
+            state = self.inverse_kinematics(joints_position)
+        return state, joints_position
 
     async def move_robot_absolute(
         self,
@@ -286,9 +259,8 @@ class UR5eHardware(BaseManipulator):
         if not self.is_connected or self.rtde_ctrl is None:
             await super().move_to_sleep()
             return
-        q_home = [-0.079, -1.98, 2.03, 3.70, -1.58, -4.78]
         try:
-            self.rtde_ctrl.moveJ(q_home, 0.4, 0.6)
+            self.rtde_ctrl.moveJ(self.SLEEP_POSITION, 0.4, 0.6)
         except Exception:
             pass
 
@@ -301,17 +273,23 @@ class UR5eHardware(BaseManipulator):
         return super().forward_kinematics(sync_robot_pos=sync_robot_pos)
 
     def get_info_for_dataset(self) -> BaseRobotInfo:
-        num_joints = len(self.SERVO_IDS)
+        if self.with_gripper:
+            num_joints = len(self.SERVO_IDS) + 1
+        else:
+            num_joints = len(self.SERVO_IDS)
+        names = [f"motor_{i}" for i in range(num_joints)]
+        if self.with_gripper:
+            names.append("gripper")
         return BaseRobotInfo(
             robot_type=self.name,
             action=FeatureDetails(
                 dtype="float32",
                 shape=[num_joints],
-                names=[f"motor_{i}" for i in range(num_joints)],
+                names=names,
             ),
             observation_state=FeatureDetails(
                 dtype="float32",
                 shape=[num_joints],
-                names=[f"motor_{i}" for i in range(num_joints)],
+                names=names,
             ),
         )
