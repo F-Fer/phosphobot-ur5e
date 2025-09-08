@@ -93,6 +93,7 @@ async def start_recording_episode(
 
     # Check that the number of cameras and robots is consistent with the existing dataset
     number_of_connected_cameras = len(cameras_ids_to_record)
+    # TODO: connected cameras might be stereo cameras, we need to handle this
 
     # Compute the number of connected robots and remove leader arms
     number_of_connected_robots = 0

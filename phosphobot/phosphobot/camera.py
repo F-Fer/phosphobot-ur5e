@@ -156,7 +156,7 @@ def detect_camera_type(
         # This ensures the UI splits the frame into left/right views.
         lowered = camera_name.lower()
         if "zed" in lowered or "stereolabs" in lowered:
-            return "stereo"
+            return "zed_stereo"
     if config.SIMULATE_CAMERAS and possible_camera_ids is not None:
         # The last two cameras indexes are simulated cameras
         if index == possible_camera_ids[-1]:
@@ -654,6 +654,28 @@ class StereoCamera(VideoCamera):
         if resize is not None:
             right_frame = cv2.resize(right_frame, resize, interpolation=cv2.INTER_AREA)
         return right_frame
+
+
+class StereoCameraZed(VideoCamera):
+    def get_left_eye_rgb_frame(self, resize=None):
+        last_frame = super().get_rgb_frame()
+        if last_frame is None:
+            return None
+        w = last_frame.shape[1]
+        left = last_frame[:, : w // 2]
+        return cv2.resize(left, resize, interpolation=cv2.INTER_AREA) if resize else left
+
+    def get_right_eye_rgb_frame(self, resize=None):
+        last_frame = super().get_rgb_frame()
+        if last_frame is None:
+            return None
+        w = last_frame.shape[1]
+        right = last_frame[:, w // 2 :]
+        return cv2.resize(right, resize, interpolation=cv2.INTER_AREA) if resize else right
+
+    # Only if you really want left-only everywhere get_rgb_frame is used:
+    def get_rgb_frame(self, resize=None):
+        return self.get_left_eye_rgb_frame(resize=resize)
 
 
 try:
@@ -1167,6 +1189,15 @@ class AllCameras:
                     )
                 )
                 self.camera_ids.append(index)
+
+            elif camera_type == "zed_stereo":
+                self.video_cameras.append(StereoCameraZed(
+                    video=cv2.VideoCapture(index),
+                    disable=self.disabled_cameras is not None
+                    and index in self.disabled_cameras,
+                    camera_id=index,
+                ))
+                self.camera_ids.append(index)
             # TODO: Support multiple stereo cameras
             elif camera_type == "stereo":
                 print(f"Stereo camera detected: {index}")
@@ -1467,7 +1498,7 @@ class AllCameras:
         resize: Optional[Tuple[int, int]] = None,
     ) -> Optional[cv2.typing.MatLike]:
         """
-        Return the latest RGB frame from the specidied camera
+        Return the latest RGB frame from the specified camera
         To use the realsense camera, set realsense to True
         If no Camera is specified, the first video camera recognized by OpenCV will be used
 
