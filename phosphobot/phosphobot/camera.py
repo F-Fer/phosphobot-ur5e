@@ -150,6 +150,13 @@ def detect_camera_type(
         camera_name = camera_names[index]
         if "realsense" in camera_name.lower():
             return "realsense"
+        # Treat ZED cameras as stereo even if their advertised resolution ratio
+        # is not strictly 32:9 (some UVC modes present a side-by-side stream at
+        # 1280x720, which would otherwise be detected as a classic 16:9 feed).
+        # This ensures the UI splits the frame into left/right views.
+        lowered = camera_name.lower()
+        if "zed" in lowered or "stereolabs" in lowered:
+            return "stereo"
     if config.SIMULATE_CAMERAS and possible_camera_ids is not None:
         # The last two cameras indexes are simulated cameras
         if index == possible_camera_ids[-1]:
@@ -1162,6 +1169,7 @@ class AllCameras:
                 self.camera_ids.append(index)
             # TODO: Support multiple stereo cameras
             elif camera_type == "stereo":
+                print(f"Stereo camera detected: {index}")
                 stereo_camera = StereoCamera(
                     video=cv2.VideoCapture(index),
                     disable=self.disabled_cameras is not None
