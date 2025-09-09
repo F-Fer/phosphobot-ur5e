@@ -73,7 +73,6 @@ class UR5eHardware(BaseManipulator):
         try:
             # Use a lock to prevent races with other command sites
             with self._rtde_lock:
-                print("preempting motion")
                 try:
                     self.rtde_ctrl.servoStop()
                 except Exception:
@@ -103,7 +102,7 @@ class UR5eHardware(BaseManipulator):
             # Gripper uses UR dashboard/remote socket on 63352 by default
             try:
                 self.gripper.connect(self.robot_ip, 63352)
-                self.gripper.activate()
+                # self.gripper.activate()
             except Exception as e:
                 logger.warning(f"Robotiq gripper init failed: {e}")
             self.is_connected = True
@@ -154,13 +153,7 @@ class UR5eHardware(BaseManipulator):
 
     def control_gripper(self, open_command: float, **kwargs: Any) -> None:
         # Open/close Robotiq on UR controller; also mirror to sim if needed (no sim gripper for UR5e)
-        open_command = float(np.clip(open_command, 0.0, 1.0))
-        if self.is_connected:
-            try:
-                target = int(open_command * 255)
-                self.gripper.move(target, self.gripper_speed, self.gripper_force)
-            except Exception as e:
-                logger.error(f"Error controlling gripper: {e}")
+        self._moveGripper(int(open_command * 255))
 
     def get_observation(self) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -278,18 +271,11 @@ class UR5eHardware(BaseManipulator):
             await super().move_to_initial_position(open_gripper=True)
             return
         q_home = [-0.079, -1.98, 2.03, 3.70, -1.58, -4.78]
-        try:
-            self.preempt_motion()
-            print("preempted motion")
-            with self._rtde_lock:
-                print("moving J")
-                self.rtde_ctrl.moveJ(q_home, 0.4, 0.6)
-        except Exception:
-            pass
-        try:
-            self.gripper.move_and_wait_for_pos(self.gripper.get_open_position(), self.gripper_speed, self.gripper_force)
-        except Exception:
-            pass
+        q_home = np.array(q_home)
+        self.preempt_motion()
+        self._moveJ(q_home)
+        self._moveGripper(self.gripper.get_open_position())
+
         if self.rtde_rec is not None:
             pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
             position = pose[:3]
@@ -301,12 +287,9 @@ class UR5eHardware(BaseManipulator):
         if not self.is_connected or self.rtde_ctrl is None:
             await super().move_to_sleep()
             return
-        try:
-            self.preempt_motion()
-            with self._rtde_lock:
-                self.rtde_ctrl.moveJ(self.SLEEP_POSITION, 0.4, 0.6)
-        except Exception:
-            pass
+        self.preempt_motion()
+        self._moveJ(self.SLEEP_POSITION)
+        self._moveGripper(self.gripper.get_open_position())
 
     def forward_kinematics(self, sync_robot_pos: bool = False) -> tuple[np.ndarray, np.ndarray]:
         if self.is_connected and self.rtde_rec is not None:
@@ -339,7 +322,7 @@ class UR5eHardware(BaseManipulator):
         )
     
     def set_motors_positions(
-        self, q_target_rad: np.ndarray, enable_gripper: bool = False
+        self, q_target_rad: np.ndarray, enable_gripper: bool = True
         ) -> None:
         if not self.is_connected:
             return
@@ -353,7 +336,39 @@ class UR5eHardware(BaseManipulator):
 
         # Stop any lingering control thread before issuing a new command
         self.preempt_motion()
+        self._moveJ(arm_q)
+        if target_gripper_position is not None:
+            self._moveGripper(target_gripper_position)
+    
+    # Private methods
+    def _moveJ(self, q_target_rad: np.ndarray) -> None:
+        """
+        Move the robot in joint space.
+        q_target_rad is in radians.
+        """
+        if not self.is_connected or self.rtde_ctrl is None:
+            return
+        if q_target_rad.shape[0] == len(self.SERVO_IDS):
+            arm_q = q_target_rad
+        else:
+            arm_q = q_target_rad[:len(self.SERVO_IDS)]
         with self._rtde_lock:
-            self.rtde_ctrl.moveJ(arm_q, self.speed, self.acc)
-            if target_gripper_position is not None:
+            try:
+                self.rtde_ctrl.moveJ(arm_q, self.speed, self.acc)
+            except Exception as e:
+                logger.warning(f"moveJ failed: {e}")
+    
+    def _moveGripper(self, target_gripper_position: int) -> None:
+        """
+        Move the gripper.
+        target_gripper_position is in [0, 255].
+        """
+        if not self.is_connected or self.gripper is None or not self.with_gripper or target_gripper_position is None:
+            return
+        target_gripper_position = int(np.clip(target_gripper_position, 0, 255))
+        with self._rtde_lock:
+            try:
                 self.gripper.move(target_gripper_position, self.gripper_speed, self.gripper_force)
+            except Exception as e:
+                logger.warning(f"moveGripper failed: {e}")
+        

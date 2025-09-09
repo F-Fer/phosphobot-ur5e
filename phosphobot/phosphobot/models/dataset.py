@@ -325,7 +325,6 @@ class BaseEpisode(BaseModel, ABC):
                 time_per_segment = (
                     delta_timestamp / interpolation_factor / playback_speed
                 )
-                print(f"Time per segment: {time_per_segment}")
 
                 # Fill empty values from the next step joints with the current step
                 next_step.observation.joints_position = np.where(
@@ -348,12 +347,10 @@ class BaseEpisode(BaseModel, ABC):
 
                     if index % 20 == 0 and i == 0:
                         logger.info(f"Playing step {index}")
-                    print(f"Interpolating between: {curr_step.observation.joints_position} and {next_step.observation.joints_position}")
-                    print(f"Interpolated value: {interp_value}")
+                    
                     move_robots(interp_value)
                     # Timing control
                     elapsed = time.perf_counter() - start_time
-                    print(f"Elapsed: {elapsed}")
                     time_to_wait = max(time_per_segment - elapsed, 0)
                     await asyncio.sleep(time_to_wait)
 
