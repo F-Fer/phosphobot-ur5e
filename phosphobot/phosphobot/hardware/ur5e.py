@@ -1,6 +1,7 @@
 from typing import Any, Optional, List, Literal, Tuple
 
 import asyncio
+import time
 import threading
 import numpy as np
 from loguru import logger
@@ -51,6 +52,19 @@ class UR5eHardware(BaseManipulator):
         # Joint-space moveJ parameters
         self.speed = float(speed)  # rad/s
         self.acc = float(acc)      # rad/s^2
+
+        # servoJ streaming parameters
+        # Use a finite period so the controller gracefully holds until next update
+        # and does not require a perfect 125 Hz stream from Python/HTTP loop
+        self.servoj_t = 0.05
+        self.servoj_lookahead = 0.08
+        self.servoj_gain = 300
+
+        # Gripper command throttling
+        self._last_gripper_pos: Optional[int] = None
+        self._last_gripper_cmd_time: float = 0.0
+        self._gripper_min_delta: int = 3        # minimum change (0-255 scale)
+        self._gripper_min_period_s: float = 0.05
 
         # Gripper (Robotiq on UR controller tool comms)
         self.with_gripper = True
@@ -334,9 +348,21 @@ class UR5eHardware(BaseManipulator):
             grip_cmd = float(np.clip(q_target_rad[-1], 0.0, 1.0))
             target_gripper_position = int(grip_cmd * 255)
 
-        # Stop any lingering control thread before issuing a new command
-        self.preempt_motion()
-        self._moveJ(arm_q)
+        # Stream joint targets using servoJ for responsive, non-blocking tracking
+        if self.rtde_ctrl is not None:
+            with self._rtde_lock:
+                try:
+                    # servoJ(q, a, v, t=0, lookahead_time=0.1, gain=300)
+                    self.rtde_ctrl.servoJ(
+                        arm_q,
+                        float(self.acc),
+                        float(self.speed),
+                        float(self.servoj_t),
+                        float(self.servoj_lookahead),
+                        int(self.servoj_gain),
+                    )
+                except Exception as e:
+                    logger.warning(f"servoJ failed: {e}")
         if target_gripper_position is not None:
             self._moveGripper(target_gripper_position)
     
@@ -366,9 +392,16 @@ class UR5eHardware(BaseManipulator):
         if not self.is_connected or self.gripper is None or not self.with_gripper or target_gripper_position is None:
             return
         target_gripper_position = int(np.clip(target_gripper_position, 0, 255))
-        with self._rtde_lock:
+        # Rate-limit and de-duplicate gripper commands; do not block RTDE lock
+        now = time.perf_counter()
+        if (
+            self._last_gripper_pos is None
+            or abs(target_gripper_position - self._last_gripper_pos) >= self._gripper_min_delta
+        ) and (now - self._last_gripper_cmd_time) >= self._gripper_min_period_s:
             try:
                 self.gripper.move(target_gripper_position, self.gripper_speed, self.gripper_force)
+                self._last_gripper_pos = target_gripper_position
+                self._last_gripper_cmd_time = now
             except Exception as e:
                 logger.warning(f"moveGripper failed: {e}")
         
