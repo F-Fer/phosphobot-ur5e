@@ -309,6 +309,31 @@ async def play_recording(
             ):
                 robots.remove(robot)
 
+    # Preempt other control sources and UR RTDE threads before playback
+    try:
+        from phosphobot.endpoints.control import (
+            signal_ai_control,
+            signal_leader_follower,
+            signal_gravity_control,
+        )
+        if signal_ai_control.is_in_loop():
+            signal_ai_control.stop()
+        if signal_leader_follower.is_in_loop():
+            signal_leader_follower.stop()
+        if signal_gravity_control.is_in_loop():
+            signal_gravity_control.stop()
+    except Exception:
+        pass
+
+    # Best-effort stop of UR RTDE motion threads on selected robots
+    for robot in robots:
+        try:
+            # Only UR5e has preempt_motion; guard with hasattr
+            if hasattr(robot, "preempt_motion"):
+                getattr(robot, "preempt_motion")()
+        except Exception:
+            pass
+
     # the episode cannot be None since episode_path and recorder.episode cannot be none simultaneously
     await episode.play(  # type: ignore
         robots=robots,  # type: ignore

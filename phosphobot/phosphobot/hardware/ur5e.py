@@ -1,6 +1,7 @@
 from typing import Any, Optional, List, Literal, Tuple
 
 import asyncio
+import threading
 import numpy as np
 from loguru import logger
 from scipy.spatial.transform import Rotation as R
@@ -59,6 +60,38 @@ class UR5eHardware(BaseManipulator):
 
         # Derived
         self.num_actuated_joints = len(self.SERVO_IDS)
+        # Serialize RTDE commands to avoid concurrent control threads
+        self._rtde_lock = threading.Lock()
+
+    def preempt_motion(self) -> None:
+        """
+        Best-effort stop of any ongoing RTDE control on the robot to avoid
+        'Another thread is already controlling the robot.' on Polyscope.
+        """
+        if not self.is_connected or self.rtde_ctrl is None:
+            return
+        try:
+            # Use a lock to prevent races with other command sites
+            with self._rtde_lock:
+                print("preempting motion")
+                try:
+                    self.rtde_ctrl.servoStop()
+                except Exception:
+                    pass
+                try:
+                    self.rtde_ctrl.stopJ(0.5)
+                except Exception:
+                    pass
+                try:
+                    self.rtde_ctrl.stopL(0.5)
+                except Exception:
+                    pass
+                try:
+                    self.rtde_ctrl.speedStop()
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.debug(f"preempt_motion: {e}")
 
     async def connect(self) -> None:
         if self.is_connected:
@@ -173,7 +206,9 @@ class UR5eHardware(BaseManipulator):
             rx, ry, rz = float(rotvec[0]), float(rotvec[1]), float(rotvec[2])
         x, y, z = [float(v) for v in target_position]
         try:
-            self.rtde_ctrl.moveL([x, y, z, rx, ry, rz], float(speed_m_s), float(acc_m_s2))
+            self.preempt_motion()
+            with self._rtde_lock:
+                self.rtde_ctrl.moveL([x, y, z, rx, ry, rz], float(speed_m_s), float(acc_m_s2))
         except Exception as e:
             logger.warning(f"moveL failed: {e}")
 
@@ -227,7 +262,8 @@ class UR5eHardware(BaseManipulator):
             float(new_rotvec[2]),
         ]
         try:
-            self.rtde_ctrl.servoL(pose, a_lin, v_lin, t, 0.1, 300)
+            with self._rtde_lock:
+                self.rtde_ctrl.servoL(pose, a_lin, v_lin, t, 0.1, 300)
         except Exception as e:
             logger.warning(f"servoL failed: {e}")
 
@@ -243,7 +279,11 @@ class UR5eHardware(BaseManipulator):
             return
         q_home = [-0.079, -1.98, 2.03, 3.70, -1.58, -4.78]
         try:
-            self.rtde_ctrl.moveJ(q_home, 0.4, 0.6)
+            self.preempt_motion()
+            print("preempted motion")
+            with self._rtde_lock:
+                print("moving J")
+                self.rtde_ctrl.moveJ(q_home, 0.4, 0.6)
         except Exception:
             pass
         try:
@@ -262,7 +302,9 @@ class UR5eHardware(BaseManipulator):
             await super().move_to_sleep()
             return
         try:
-            self.rtde_ctrl.moveJ(self.SLEEP_POSITION, 0.4, 0.6)
+            self.preempt_motion()
+            with self._rtde_lock:
+                self.rtde_ctrl.moveJ(self.SLEEP_POSITION, 0.4, 0.6)
         except Exception:
             pass
 
@@ -301,11 +343,17 @@ class UR5eHardware(BaseManipulator):
         ) -> None:
         if not self.is_connected:
             return
-        if enable_gripper:
-            q_target_rad = q_target_rad[:-1]
-            target_gripper_position = int(q_target_rad[-1] * 255)
-        else:
-            target_gripper_position = self.gripper.get_open_position()
-        self.rtde_ctrl.moveJ(q_target_rad, self.speed, self.acc)
-        if enable_gripper:
-            self.gripper.move(target_gripper_position, self.gripper_speed, self.gripper_force)
+        # Determine arm and gripper components robustly
+        arm_dof = len(self.SERVO_IDS)
+        arm_q = q_target_rad[:arm_dof]
+        target_gripper_position: Optional[int] = None
+        if enable_gripper and len(q_target_rad) > arm_dof:
+            grip_cmd = float(np.clip(q_target_rad[-1], 0.0, 1.0))
+            target_gripper_position = int(grip_cmd * 255)
+
+        # Stop any lingering control thread before issuing a new command
+        self.preempt_motion()
+        with self._rtde_lock:
+            self.rtde_ctrl.moveJ(arm_q, self.speed, self.acc)
+            if target_gripper_position is not None:
+                self.gripper.move(target_gripper_position, self.gripper_speed, self.gripper_force)
