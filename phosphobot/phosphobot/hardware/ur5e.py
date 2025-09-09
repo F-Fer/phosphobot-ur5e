@@ -139,11 +139,23 @@ class UR5eHardware(BaseManipulator):
         if self.is_connected and self.rtde_rec is not None:
             # First get the joint positions
             joints_position = np.asarray(self.rtde_rec.getActualQ(), dtype=float)
-            gripper_position = self.gripper.get_position()/255
-            joints_position = np.append(joints_position, self.gripper.get_position()/255)
+            gripper_position = self.gripper.get_current_position()/255
+            print(f"Gripper position: {gripper_position}")
+
+            print(f"Joints position: {joints_position}")
+            print(f"Joints position shape: {joints_position.shape}")
+
+            joints_position = np.append(joints_position, gripper_position)
+            print(f"Joints position after append: {joints_position}")
+            print(f"Joints position after append shape: {joints_position.shape}")
             # Then get the state
             tcp_pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
-            state = np.concatenate((tcp_pose, gripper_position))
+            print(f"TCP pose: {tcp_pose}")
+            print(f"TCP pose shape: {tcp_pose.shape}")
+
+            state = np.append(tcp_pose, gripper_position)
+            print(f"State: {state}")
+            print(f"State shape: {state.shape}")
         else:
             # Read from simulation if not connected
             joints_position = self.read_joints_position(unit="rad", source="sim")
