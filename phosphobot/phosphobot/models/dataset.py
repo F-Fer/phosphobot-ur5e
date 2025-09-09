@@ -220,7 +220,7 @@ class BaseEpisode(BaseModel, ABC):
         self,
         robots: List[BaseRobot],
         playback_speed: float = 1.0,
-        interpolation_factor: int = 4,
+        interpolation_factor: int = 1,
         replicate: bool = False,
     ):
         """
@@ -229,31 +229,74 @@ class BaseEpisode(BaseModel, ABC):
 
         def move_robots(joints: np.ndarray) -> None:
             """
-            Solve which robot should move depending on the number of joints and
-            the number of robots.
-            - If nb robots == nb joints, move each robot with its respective joints
-            - If nb joints > nb robots, move each robot with its respective joints until
-                the last robot. Extra joints are ignored.
-            - If nb joints < nb robots, move each robot with its respective joints until
-                the last joint. Extra robots are ignored
+            Dispatch a flat joints array to the provided robots, respecting each
+            robot's expected action dimensionality and gripper handling.
+
+            - Uses each robot.get_info_for_dataset().action.shape[0] to determine
+              how many values to consume per robot.
+            - For robots whose action dims == len(SERVO_IDS) + 1, the last value is
+              treated as a gripper command in [0, 1] and sent via control_gripper.
+            - For others, the full slice is passed to set_motors_positions with
+              enable_gripper=True so integrated grippers are preserved.
+            - If there are not enough joints for a robot and replicate is False,
+              stop dispatching. If replicate is True, wrap from the beginning.
             """
 
             nonlocal robots
 
-            nb_joints = 1 + len(joints) % 6  # 6 joints per robot
-            for i, robot in enumerate(robots):  # extra joints are ignored
-                # If there are more robots than joints, ignore the extra robots
-                if i >= nb_joints:
-                    if replicate is False:
-                        break
-                    else:
-                        # Go back to the first robot
-                        i = i % nb_joints
+            # Precompute how many action dims each robot expects and whether it
+            # has a separate gripper command (dims == len(SERVO_IDS) + 1)
+            action_dims_list: list[int] = []
+            separate_gripper_flags: list[bool] = []
+            for r in robots:
+                try:
+                    info = r.get_info_for_dataset()
+                    action_dims = int(info.action.shape[0])  # type: ignore[attr-defined]
+                except Exception:
+                    action_dims = len(getattr(r, "SERVO_IDS", []))
+                servo_dims = len(getattr(r, "SERVO_IDS", []))
+                action_dims_list.append(action_dims)
+                separate_gripper_flags.append(action_dims == (servo_dims + 1))
 
-                # Get the joints for the current robot
-                robot_joints = joints[i * 6 : (i + 1) * 6]
-                # Move the robot with its respective joints
-                robot.set_motors_positions(robot_joints, enable_gripper=True)
+            offset = 0
+            total = len(joints)
+
+            for i, robot in enumerate(robots):
+                if total == 0:
+                    break
+
+                dims = action_dims_list[i] if i < len(action_dims_list) else 0
+                if dims <= 0:
+                    continue
+
+                # Ensure we have enough values; wrap if replicate is True
+                if offset + dims > total:
+                    if not replicate:
+                        break
+                    # Wrap to the beginning for this and subsequent robots
+                    offset = 0
+                    if dims > total:
+                        # Not enough data to satisfy any robot slice; stop
+                        break
+
+                slice_vals = joints[offset : offset + dims]
+                offset += dims
+
+                has_separate_gripper = separate_gripper_flags[i] if i < len(separate_gripper_flags) else False
+
+                if has_separate_gripper and len(slice_vals) == dims:
+                    arm_q = slice_vals[: dims - 1]
+                    grip_cmd = float(slice_vals[-1])
+                    # Move arm
+                    robot.set_motors_positions(arm_q, enable_gripper=False)
+                    # Then gripper via dedicated command path
+                    try:
+                        robot.control_gripper(grip_cmd)
+                    except Exception:
+                        pass
+                else:
+                    # Integrated gripper (or no gripper): send full vector
+                    robot.set_motors_positions(slice_vals, enable_gripper=True)
 
         for index, step in enumerate(self.steps):
             # Get current and next step
@@ -282,6 +325,7 @@ class BaseEpisode(BaseModel, ABC):
                 time_per_segment = (
                     delta_timestamp / interpolation_factor / playback_speed
                 )
+                print(f"Time per segment: {time_per_segment}")
 
                 # Fill empty values from the next step joints with the current step
                 next_step.observation.joints_position = np.where(
@@ -304,10 +348,12 @@ class BaseEpisode(BaseModel, ABC):
 
                     if index % 20 == 0 and i == 0:
                         logger.info(f"Playing step {index}")
-
+                    print(f"Interpolating between: {curr_step.observation.joints_position} and {next_step.observation.joints_position}")
+                    print(f"Interpolated value: {interp_value}")
                     move_robots(interp_value)
                     # Timing control
                     elapsed = time.perf_counter() - start_time
+                    print(f"Elapsed: {elapsed}")
                     time_to_wait = max(time_per_segment - elapsed, 0)
                     await asyncio.sleep(time_to_wait)
 

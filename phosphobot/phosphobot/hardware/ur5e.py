@@ -140,22 +140,12 @@ class UR5eHardware(BaseManipulator):
             # First get the joint positions
             joints_position = np.asarray(self.rtde_rec.getActualQ(), dtype=float)
             gripper_position = self.gripper.get_current_position()/255
-            print(f"Gripper position: {gripper_position}")
-
-            print(f"Joints position: {joints_position}")
-            print(f"Joints position shape: {joints_position.shape}")
 
             joints_position = np.append(joints_position, gripper_position)
-            print(f"Joints position after append: {joints_position}")
-            print(f"Joints position after append shape: {joints_position.shape}")
             # Then get the state
             tcp_pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
-            print(f"TCP pose: {tcp_pose}")
-            print(f"TCP pose shape: {tcp_pose.shape}")
 
             state = np.append(tcp_pose, gripper_position)
-            print(f"State: {state}")
-            print(f"State shape: {state.shape}")
         else:
             # Read from simulation if not connected
             joints_position = self.read_joints_position(unit="rad", source="sim")
@@ -305,3 +295,17 @@ class UR5eHardware(BaseManipulator):
                 names=names,
             ),
         )
+    
+    def set_motors_positions(
+        self, q_target_rad: np.ndarray, enable_gripper: bool = False
+        ) -> None:
+        if not self.is_connected:
+            return
+        if enable_gripper:
+            q_target_rad = q_target_rad[:-1]
+            target_gripper_position = int(q_target_rad[-1] * 255)
+        else:
+            target_gripper_position = self.gripper.get_open_position()
+        self.rtde_ctrl.moveJ(q_target_rad, self.speed, self.acc)
+        if enable_gripper:
+            self.gripper.move(target_gripper_position, self.gripper_speed, self.gripper_force)
