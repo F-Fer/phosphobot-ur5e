@@ -29,10 +29,15 @@ try:
             self.image_keys = image_keys
 
             # Instantiate the client
-            self.client = websocket_client_policy.WebsocketClientPolicy(
+            try:
+                self.client = websocket_client_policy.WebsocketClientPolicy(
                 host=self.server_url,
                 port=self.server_port,
-            )
+                )
+            except Exception as e:
+                logger.error(f"Error instantiating the client: {e}")
+                raise e
+            
 
         @classmethod
         def fetch_and_get_configuration(cls, model_id: str) -> ModelConfigurationResponse:
@@ -64,7 +69,11 @@ try:
                     observation[self.image_keys[i]] = image_tools.convert_to_uint8(image_tools.resize_with_pad(inputs["images"][-1], 224, 224))
 
             # Call the remote server
-            action_chunk = self.client.infer(observation)["actions"]
+            try:
+                action_chunk = self.client.infer(observation)["actions"]
+            except Exception as e:
+                logger.error(f"Error calling the remote server: {e}")
+                raise e
 
             logger.debug(f"Action chunk type: {type(action_chunk)}")
             if type(action_chunk) == np.ndarray:

@@ -1129,12 +1129,23 @@ async def start_ai_control(
 
     if query.model_type == "openpi_remote":
         # openpi_remote expects a server running already -> No need to spawn one with setup_ai_control
-        model = Pi0(
-            server_url=query.openpi_url,
-            server_port=query.openpi_port,
-        )
-        model_spawn_config = None
-        server_info = None
+        try:
+            model = Pi0(
+                server_url=query.openpi_url,
+                server_port=query.openpi_port,
+            )
+            model_spawn_config = None
+            server_info = None
+        except Exception as e:
+            # Propagate a meaningful error message back to the UI instead of a 500
+            signal_ai_control.stop()
+            return AIControlStatusResponse(
+                status="error",
+                message=f"OpenPI connection failed: {e}",
+                server_info=None,
+                ai_control_signal_id=signal_ai_control.id,
+                ai_control_signal_status="stopped",
+            )
     else:
         # Get the modal host and port here
         model, model_spawn_config, server_info = await setup_ai_control(
@@ -1149,7 +1160,7 @@ async def start_ai_control(
         )
 
     # Add a flag: successful setup if Supabase available
-    if session is not None:
+    if session is not None and server_info is not None:
         supabase_client = await get_client()
         await (
             supabase_client.table("ai_control_sessions")

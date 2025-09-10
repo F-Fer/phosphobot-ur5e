@@ -153,13 +153,24 @@ export function AIControlPage() {
       return;
     }
 
-    if (!modelId.trim()) {
+    if (selectedModelType !== "openpi_remote" && !modelId.trim()) {
       toast.error("Model ID cannot be empty");
       return;
     }
     if (!prompt.trim() && modelsThatRequirePrompt.includes(selectedModelType)) {
       toast.error("Prompt cannot be empty");
       return;
+    }
+    if (selectedModelType === "openpi_remote" && !openpiUrl.trim()) {
+      toast.error("OpenPI URL cannot be empty");
+      return;
+    }
+    if (selectedModelType === "openpi_remote" && !openpiPort.trim()) {
+      toast.error("OpenPI Port cannot be empty");
+      return;
+    }
+    if (selectedModelType === "openpi_remote") {
+      setSelectedAngleFormat("rad");
     }
     mutateAIStatus({
       ...aiStatus,
@@ -191,7 +202,11 @@ export function AIControlPage() {
     }
 
     if (response.status === "error") {
-      // We receive an error message if the control loop is already running
+      // Show backend-provided error to the user
+      const msg = response.message ?? "Failed to start AI control";
+      toast.error(msg);
+
+      // Keep UI state consistent
       setShowCassette(true);
       mutateAIStatus({
         ...aiStatus,
@@ -587,7 +602,6 @@ export function AIControlPage() {
                     disabled={
                       aiStatus?.status !== "stopped" ||
                       ((selectedModelType as string) !== "openpi_remote" && (!modelId.trim() || !modelConfiguration)) ||
-                      (selectedModelType as string) === "openpi_remote" ||
                       (!prompt.trim() &&
                         modelsThatRequirePrompt.includes(selectedModelType))
                     }
