@@ -289,7 +289,6 @@ class UR5eHardware(BaseManipulator):
         self.preempt_motion()
         self._moveJ(q_home)
         self.gripper.activate(auto_calibrate=True)
-        self._moveGripper(self.gripper.get_open_position())
 
         if self.rtde_rec is not None:
             pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)

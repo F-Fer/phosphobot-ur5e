@@ -205,7 +205,7 @@ async def move_to_absolute_position(
         # If the robot has a control_gripper method, use it to open/close the gripper
         background_tasks.add_task(
             background_task_log_exceptions(robot.control_gripper),
-            open_command=query.open,
+            open_command=1 - query.open,
         )
 
     initial_position = getattr(robot, "initial_position", None)
@@ -358,7 +358,9 @@ async def move_relative(
         )
         if hasattr(robot, "control_gripper") and data.open is not None:
             # If the robot has a control_gripper method, use it to open/close the gripper
-            robot.control_gripper(open_command=data.open)
+            # Invert the open command
+            open_command = 1 - data.open
+            robot.control_gripper(open_command=open_command)
         return StatusResponse()
 
     # Call move_robot_absolute if the robot does not have move_robot_relative
