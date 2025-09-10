@@ -58,7 +58,7 @@ export function AIControlPage() {
   const modelId = useGlobalStore((state) => state.modelId);
   const setModelId = useGlobalStore((state) => state.setModelId);
   const [openpiUrl, setOpenpiUrl] = useState("");
-  const [openpiApiKey, setOpenpiApiKey] = useState("");
+  const [openpiPort, setOpenpiPort] = useState("");
 
   const [showCassette, setShowCassette] = useState(false);
   const [speed, setSpeed] = useState(1.0);
@@ -389,17 +389,17 @@ export function AIControlPage() {
                   <div className="flex flex-col md:flex-row gap-2">
                     <Input
                       id="openpiUrl"
-                      placeholder="http://<server>:<port>"
+                      placeholder="http://<server>"
                       value={openpiUrl}
                       onChange={(e) => setOpenpiUrl(e.target.value)}
                       className="w-full"
                       disabled={aiStatus?.status !== "stopped"}
                     />
                     <Input
-                      id="openpiApiKey"
-                      placeholder="API Key (optional)"
-                      value={openpiApiKey}
-                      onChange={(e) => setOpenpiApiKey(e.target.value)}
+                      id="openpiPort"
+                      placeholder="8080"
+                      value={openpiPort}
+                      onChange={(e) => setOpenpiPort(e.target.value)}
                       className="w-full"
                       disabled={aiStatus?.status !== "stopped"}
                     />

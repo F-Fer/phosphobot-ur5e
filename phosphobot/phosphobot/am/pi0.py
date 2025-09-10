@@ -1,6 +1,9 @@
 from phosphobot.am.base import ActionModel
 from typing import List
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     from openpi_client import websocket_client_policy  # type: ignore
@@ -33,6 +36,12 @@ try:
 
             # Call the remote server
             action_chunk = self.client.infer(observation)["actions"]
+
+            logger.debug(f"Action chunk type: {type(action_chunk)}")
+            if type(action_chunk) == np.ndarray:
+                logger.debug(f"Action chunk shape: {action_chunk.shape}")
+            else:
+                logger.debug(f"Action chunk: {action_chunk}")
 
             # TODO: check action_chunk is of type np.ndarray
             return action_chunk
