@@ -27,7 +27,7 @@ class UR5eHardware(BaseManipulator):
     GRIPPER_JOINT_INDEX = -1     # no simulated gripper joint
 
     SERVO_IDS = [1, 2, 3, 4, 5, 6]
-    SLEEP_POSITION = [-0.079, -1.98, 2.03, 3.70, -1.58, -4.78]
+    SLEEP_POSITION = np.array([-0.079, -1.98, 2.03, 3.70, -1.58, -4.78])
     RESOLUTION = 4096
 
     with_gripper = True
@@ -116,7 +116,7 @@ class UR5eHardware(BaseManipulator):
             # Gripper uses UR dashboard/remote socket on 63352 by default
             try:
                 self.gripper.connect(self.robot_ip, 63352)
-                # self.gripper.activate()
+                self.gripper.activate(auto_calibrate=False)
             except Exception as e:
                 logger.warning(f"Robotiq gripper init failed: {e}")
             self.is_connected = True
@@ -288,6 +288,7 @@ class UR5eHardware(BaseManipulator):
         q_home = np.array(q_home)
         self.preempt_motion()
         self._moveJ(q_home)
+        self.gripper.activate(auto_calibrate=True)
         self._moveGripper(self.gripper.get_open_position())
 
         if self.rtde_rec is not None:

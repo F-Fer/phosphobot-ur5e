@@ -870,7 +870,7 @@ class StartAIControlRequest(BaseModel):
     prompt: Optional[str] = Field(
         None, description="Prompt to be followed by the robot"
     )
-    model_id: str = Field(..., description="Hugging Face model id to use")
+    model_id: Optional[str] = Field(..., description="Hugging Face model id to use")
     speed: float = Field(
         1.0,
         ge=0.1,
@@ -888,7 +888,7 @@ class StartAIControlRequest(BaseModel):
         description="Mapping of the camera keys to the camera ids. If set to None, use the default mapping based on cameras order.",
         examples=[{"wrist_camera": 0, "context_camera": 1}],
     )
-    model_type: Literal["gr00t", "ACT", "ACT_BBOX"] = Field(
+    model_type: Literal["gr00t", "ACT", "ACT_BBOX", "openpi_remote"] = Field(
         ...,
         description="Type of model to use. Can be gr00t or act.",
     )
@@ -917,6 +917,14 @@ class StartAIControlRequest(BaseModel):
     max_angle: Optional[float] = Field(
         None,
         description="If angle_format is 'other', this is the maximum angle value used in the model. If None and angle_format is 'other', will raise an error.",
+    )
+    openpi_url: Optional[str] = Field(
+        None,
+        description="URL of the OpenPI policy server.",
+    )
+    openpi_port: Optional[int] = Field(
+        None,
+        description="Port of the OpenPI policy server.",
     )
 
     @model_validator(mode="after")

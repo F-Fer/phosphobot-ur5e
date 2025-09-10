@@ -19,6 +19,7 @@ from loguru import logger
 from scipy.spatial.transform import Rotation as R
 from supabase_auth.types import Session as SupabaseSession
 
+from phosphobot.am.pi0 import Pi0
 from phosphobot.ai_control import CustomAIControlSignal, setup_ai_control
 from phosphobot.camera import AllCameras, get_all_cameras
 from phosphobot.control_signal import ControlSignal
@@ -1005,6 +1006,9 @@ async def spawn_inference_server(
     Start an inference server and return the server info.
     """
 
+    if query.model_type == "openpi_remote":
+        return SpawnStatusResponse(message="ok", server_info=None)
+
     # If Supabase session exists, validate user as before; otherwise skip
     if session is not None:
         supabase_client = await get_client()
@@ -1121,17 +1125,26 @@ async def start_ai_control(
         isinstance(robot, BaseManipulator) for robot in robots_to_control
     ), "All robots must be manipulators for AI control"
 
-    # Get the modal host and port here
-    model, model_spawn_config, server_info = await setup_ai_control(
-        robots=robots_to_control,  # type: ignore
-        all_cameras=all_cameras,
-        model_type=query.model_type,
-        model_id=query.model_id,
-        cameras_keys_mapping=query.cameras_keys_mapping,
-        ai_control_signal_id=signal_ai_control.id,
-        verify_cameras=query.verify_cameras,
-        checkpoint=query.checkpoint,
-    )
+    if query.model_type == "openpi_remote":
+        # openpi_remote expects a server running already -> No need to spawn one with setup_ai_control
+        model = Pi0(
+            server_url=query.openpi_url,
+            server_port=query.openpi_port,
+        )
+        model_spawn_config = None
+        server_info = None
+    else:
+        # Get the modal host and port here
+        model, model_spawn_config, server_info = await setup_ai_control(
+            robots=robots_to_control,  # type: ignore
+            all_cameras=all_cameras,
+            model_type=query.model_type,
+            model_id=query.model_id,
+            cameras_keys_mapping=query.cameras_keys_mapping,
+            ai_control_signal_id=signal_ai_control.id,
+            verify_cameras=query.verify_cameras,
+            checkpoint=query.checkpoint,
+        )
 
     # Add a flag: successful setup if Supabase available
     if session is not None:

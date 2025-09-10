@@ -73,7 +73,7 @@ export function AIControlPage() {
   const setShowCamera = useGlobalStore((state) => state.setShowCamera);
   const cameraKeysMapping = useGlobalStore((state) => state.cameraKeysMapping);
 
-  const modelsThatRequirePrompt = ["gr00t", "ACT_BBOX"];
+  const modelsThatRequirePrompt = ["gr00t", "ACT_BBOX", "openpi_remote"];
   const selectedModelType = useGlobalStore((state) => state.selectedModelType);
   const setSelectedModelType = useGlobalStore(
     (state) => state.setSelectedModelType,
@@ -557,7 +557,7 @@ export function AIControlPage() {
               </Accordion>
 
               <div className="space-y-2 mt-2">
-                {selectedModelType == "gr00t" && <Label>Prompt</Label>}
+                {(selectedModelType == "gr00t" || selectedModelType == "openpi_remote") && <Label>Prompt</Label>}
                 {selectedModelType === "ACT_BBOX" && (
                   <Label>Object to detect</Label>
                 )}
@@ -568,7 +568,7 @@ export function AIControlPage() {
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
                       placeholder={
-                        selectedModelType === "gr00t"
+                        selectedModelType === "gr00t" || selectedModelType === "openpi_remote"
                           ? "eg. 'Pick up the red ball and place it in the box.'"
                           : "eg. 'red ball', 'plushy', 'green cube'"
                       }
