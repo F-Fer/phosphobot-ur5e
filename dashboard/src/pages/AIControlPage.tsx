@@ -57,6 +57,8 @@ export function AIControlPage() {
   const [prompt, setPrompt] = useState("");
   const modelId = useGlobalStore((state) => state.modelId);
   const setModelId = useGlobalStore((state) => state.setModelId);
+  const [openpiUrl, setOpenpiUrl] = useState("");
+  const [openpiApiKey, setOpenpiApiKey] = useState("");
 
   const [showCassette, setShowCassette] = useState(false);
   const [speed, setSpeed] = useState(1.0);
@@ -92,7 +94,9 @@ export function AIControlPage() {
   );
 
   const { data: modelConfiguration } = useSWR<ModelConfiguration>(
-    modelId ? ["/model/configuration", modelId, selectedModelType] : null,
+    (selectedModelType as string) === "openpi_remote" || !modelId
+      ? null
+      : ["/model/configuration", modelId, selectedModelType],
     ([url]) =>
       fetcher(url, "POST", {
         model_id: modelId,
@@ -260,11 +264,13 @@ export function AIControlPage() {
               <ToggleGroupItem value="ACT_BBOX">BB-ACT</ToggleGroupItem>
               <ToggleGroupItem value="gr00t">gr00t</ToggleGroupItem>
               <ToggleGroupItem value="ACT">ACT</ToggleGroupItem>
+              <ToggleGroupItem value="openpi_remote">OpenPI</ToggleGroupItem>
             </ToggleGroup>
           </div>
 
           {selectedModelType && (
             <>
+              {(selectedModelType as string) !== "openpi_remote" && (
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Label htmlFor="modelId">Model ID</Label>
@@ -363,8 +369,45 @@ export function AIControlPage() {
                   </Button>
                 </div>
               </div>
+              )}
 
-              {/* The user should select the format of the angles he recorded: degrees, radians or custom */}
+              {(selectedModelType as string) === "openpi_remote" && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="openpiUrl">OpenPI Policy Server</Label>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Enter the URL of your OpenPI policy server (e.g., http://host:port).</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                  <div className="flex flex-col md:flex-row gap-2">
+                    <Input
+                      id="openpiUrl"
+                      placeholder="http://<server>:<port>"
+                      value={openpiUrl}
+                      onChange={(e) => setOpenpiUrl(e.target.value)}
+                      className="w-full"
+                      disabled={aiStatus?.status !== "stopped"}
+                    />
+                    <Input
+                      id="openpiApiKey"
+                      placeholder="API Key (optional)"
+                      value={openpiApiKey}
+                      onChange={(e) => setOpenpiApiKey(e.target.value)}
+                      className="w-full"
+                      disabled={aiStatus?.status !== "stopped"}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {(selectedModelType as string) !== "openpi_remote" && (
               <div className="flex flex-col gap-y-2">
                 <div className="text-xs text-muted-foreground">
                   Select angle units in the original dataset
@@ -463,6 +506,7 @@ export function AIControlPage() {
                   </div>
                 )}
               </div>
+              )}
 
               <Accordion
                 type="single"
@@ -542,8 +586,8 @@ export function AIControlPage() {
                     onClick={startControlByAI}
                     disabled={
                       aiStatus?.status !== "stopped" ||
-                      !modelId.trim() ||
-                      !modelConfiguration ||
+                      ((selectedModelType as string) !== "openpi_remote" && (!modelId.trim() || !modelConfiguration)) ||
+                      (selectedModelType as string) === "openpi_remote" ||
                       (!prompt.trim() &&
                         modelsThatRequirePrompt.includes(selectedModelType))
                     }
