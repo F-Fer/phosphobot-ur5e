@@ -20,7 +20,11 @@ from phosphobot.models import (
     SupabaseTrainingModel,
     TrainingsList,
 )
-from phosphobot.supabase import get_client, user_is_logged_in
+from phosphobot.supabase import (
+    get_client,
+    optional_user_session,
+    user_is_logged_in,
+)
 from phosphobot.utils import get_hf_token, get_home_app_path, get_tokens
 from supabase_auth.types import Session as SupabaseSession
 
@@ -30,9 +34,13 @@ router = APIRouter(tags=["training"])
 
 @router.post("/training/models/read", response_model=TrainingsList)
 async def get_models(
-    session: SupabaseSession = Depends(user_is_logged_in),
+    session: SupabaseSession | None = Depends(optional_user_session),
 ) -> TrainingsList:
     """Get the list of models with aggregated AI control session metrics"""
+    # If auth is disabled or not configured, return empty list gracefully
+    if session is None:
+        return TrainingsList(models=[])
+
     client = await get_client()
     user_id = session.user.id
 

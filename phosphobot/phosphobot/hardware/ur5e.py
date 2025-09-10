@@ -392,7 +392,7 @@ class UR5eHardware(BaseManipulator):
         if not self.is_connected or self.gripper is None or not self.with_gripper or target_gripper_position is None:
             return
         target_gripper_position = int(np.clip(target_gripper_position, 0, 255))
-        # Rate-limit and de-duplicate gripper commands; do not block RTDE lock
+        # Rate-limit and de-duplicate gripper commands
         now = time.perf_counter()
         if (
             self._last_gripper_pos is None

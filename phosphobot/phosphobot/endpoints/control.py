@@ -62,7 +62,11 @@ from phosphobot.robot import (
     URDFLoader,
     get_rcm,
 )
-from phosphobot.supabase import get_client, user_is_logged_in
+from phosphobot.supabase import (
+    get_client,
+    optional_user_session,
+    user_is_logged_in,
+)
 from phosphobot.teleoperation import (
     TeleopManager,
     UDPServer,
@@ -995,14 +999,16 @@ async def spawn_inference_server(
     query: StartServerRequest,
     rcm: RobotConnectionManager = Depends(get_rcm),
     all_cameras: AllCameras = Depends(get_all_cameras),
-    session: SupabaseSession = Depends(user_is_logged_in),
+    session: SupabaseSession | None = Depends(optional_user_session),
 ) -> SpawnStatusResponse:
     """
     Start an inference server and return the server info.
     """
 
-    supabase_client = await get_client()
-    await supabase_client.auth.get_user()
+    # If Supabase session exists, validate user as before; otherwise skip
+    if session is not None:
+        supabase_client = await get_client()
+        await supabase_client.auth.get_user()
 
     robots_to_control = copy(await rcm.robots)
     for robot in await rcm.robots:
@@ -1046,7 +1052,7 @@ async def start_ai_control(
     background_tasks: BackgroundTasks,
     rcm: RobotConnectionManager = Depends(get_rcm),
     all_cameras: AllCameras = Depends(get_all_cameras),
-    session: SupabaseSession = Depends(user_is_logged_in),
+    session: SupabaseSession | None = Depends(optional_user_session),
 ) -> AIControlStatusResponse:
     """
     Start the auto control by AI
@@ -1075,26 +1081,27 @@ async def start_ai_control(
     signal_ai_control.new_id()
     signal_ai_control.start()
 
-    supabase_client = await get_client()
-    user = await supabase_client.auth.get_user()
-    if user is None:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    await (
-        supabase_client.table("ai_control_sessions")
-        .upsert(
-            {
-                "id": signal_ai_control.id,
-                "user_id": user.user.id,
-                "user_email": user.user.email,
-                "model_type": query.model_type,
-                "model_id": query.model_id,
-                "prompt": query.prompt,
-                "checkpoint": query.checkpoint,
-                "status": "waiting",
-            }
+    if session is not None:
+        supabase_client = await get_client()
+        user = await supabase_client.auth.get_user()
+        if user is None:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        await (
+            supabase_client.table("ai_control_sessions")
+            .upsert(
+                {
+                    "id": signal_ai_control.id,
+                    "user_id": user.user.id,
+                    "user_email": user.user.email,
+                    "model_type": query.model_type,
+                    "model_id": query.model_id,
+                    "prompt": query.prompt,
+                    "checkpoint": query.checkpoint,
+                    "status": "waiting",
+                }
+            )
+            .execute()
         )
-        .execute()
-    )
 
     robots_to_control = copy(await rcm.robots)
     for robot in await rcm.robots:
@@ -1126,18 +1133,20 @@ async def start_ai_control(
         checkpoint=query.checkpoint,
     )
 
-    # Add a flag: successful setup
-    await (
-        supabase_client.table("ai_control_sessions")
-        .update(
-            {
-                "setup_success": True,
-                "server_id": server_info.server_id,
-            }
+    # Add a flag: successful setup if Supabase available
+    if session is not None:
+        supabase_client = await get_client()
+        await (
+            supabase_client.table("ai_control_sessions")
+            .update(
+                {
+                    "setup_success": True,
+                    "server_id": server_info.server_id,
+                }
+            )
+            .eq("id", signal_ai_control.id)
+            .execute()
         )
-        .eq("id", signal_ai_control.id)
-        .execute()
-    )
 
     background_tasks.add_task(
         model.control_loop,
@@ -1173,7 +1182,7 @@ async def start_ai_control(
 async def stop_ai_control(
     background_tasks: BackgroundTasks,
     rcm: RobotConnectionManager = Depends(get_rcm),
-    session: SupabaseSession = Depends(user_is_logged_in),
+    session: SupabaseSession | None = Depends(optional_user_session),
 ) -> StatusResponse:
     """
     Stop the auto control by AI
@@ -1181,19 +1190,20 @@ async def stop_ai_control(
 
     tokens = get_tokens()
 
-    # Call the /stop endpoint in Modal
-    @background_task_log_exceptions
-    async def stop_modal() -> None:
-        async with httpx.AsyncClient(timeout=5) as client:
-            await client.post(
-                url=f"{tokens.MODAL_API_URL}/stop",
-                headers={
-                    "Authorization": f"Bearer {session.access_token}",
-                    "Content-Type": "application/json",
-                },
-            )
+    # Call the /stop endpoint in Modal if we have a session
+    if session is not None:
+        @background_task_log_exceptions
+        async def stop_modal() -> None:
+            async with httpx.AsyncClient(timeout=5) as client:
+                await client.post(
+                    url=f"{tokens.MODAL_API_URL}/stop",
+                    headers={
+                        "Authorization": f"Bearer {session.access_token}",
+                        "Content-Type": "application/json",
+                    },
+                )
 
-    background_tasks.add_task(stop_modal)
+        background_tasks.add_task(stop_modal)
 
     if not signal_ai_control.is_in_loop():
         return StatusResponse(message="Auto control is not running")

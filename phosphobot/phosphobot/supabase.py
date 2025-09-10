@@ -24,10 +24,8 @@ async def initialize_client() -> AsyncClient:
     global _client
 
     tokens = get_tokens()
-    if tokens.SUPABASE_URL is None:
-        raise ValueError("SUPABASE_URL is not set in the tokens.toml file.")
-    if tokens.SUPABASE_KEY is None:
-        raise ValueError("SUPABASE_KEY is not set in the tokens.toml file.")
+    if tokens.SUPABASE_URL is None or tokens.SUPABASE_KEY is None:
+        raise ValueError("Supabase not configured: set SUPABASE_URL and SUPABASE_KEY in tokens.toml")
 
     if _client is None:
         _client = await acreate_client(
@@ -152,8 +150,25 @@ async def user_is_logged_in() -> SupabaseSession:
     """
     Check if the user is logged in. If not, raise HTTPException with status code 401.
     """
+    # Strict check used where login is mandatory
     client = await get_client()
     session = await client.auth.get_session()
     if session is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return session
+
+
+async def optional_user_session() -> Optional[SupabaseSession]:
+    """
+    Return the current Supabase session if Supabase is configured and a session exists.
+    If Supabase is not configured or no session is present, return None.
+    """
+    try:
+        client = await initialize_client()
+    except Exception:
+        # Supabase not configured locally
+        return None
+    try:
+        return await client.auth.get_session()
+    except Exception:
+        return None
