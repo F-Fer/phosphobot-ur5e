@@ -22,7 +22,7 @@ try:
             self,
             server_url: str = "http://127.0.0.1",
             server_port: int = 8000,
-            image_keys=["observation/image", "observation/wrist_image"],
+            image_keys=["observation/exterior_image_1_left", "observation/wrist_image_left"],
         ):
             if server_url is None:
                 logger.error("Server URL is not set. Please set the server URL.")
@@ -68,9 +68,11 @@ try:
 
 
         def sample_actions(self, inputs: dict) -> np.ndarray:
+            # TODO: Why does DROID expect joint_pos to have 7 dimensions?
             observation = {
-                "observation/state": inputs["state"],
-                "prompt": inputs["prompt"],
+                "observation/joint_position": inputs["state"],
+                "observation/gripper_position": inputs["state"][-1],
+                "prompt": inputs["prompt"]
             }
 
             # Map each configured image key to the corresponding image input
@@ -78,6 +80,7 @@ try:
                 if i < len(inputs["images"]):
                     observation[self.image_keys[i]] = image_tools.convert_to_uint8(image_tools.resize_with_pad(inputs["images"][i], 224, 224))
                 else:
+                    logger.warning(f"Not enough images provided. Reusing the last available one. {len(inputs['images'])} images provided, {len(self.image_keys)} image keys expected.")
                     # If not enough images provided, reuse the last available one
                     observation[self.image_keys[i]] = image_tools.convert_to_uint8(image_tools.resize_with_pad(inputs["images"][-1], 224, 224))
 
@@ -166,20 +169,18 @@ try:
                     control_signal.stop()
                     logger.error("No robot connected. Exiting AI control loop.")
                     break
-                # TODO: Check this
-                state = robots[0].read_joints_position(
-                    unit=unit, max_value=max_angle, min_value=min_angle
-                )
+                
+                state = robots[0].get_observation()[1] # Get the joints positions (idx 1)
                 for robot in robots[1:]:
                     state = np.concatenate(
                         (
                             state,
-                            robot.read_joints_position(
-                                unit=unit, max_value=max_angle, min_value=min_angle
-                            ),
+                            robot.get_observation()[1], # Get the joints positions (idx 1)
                         ),
                         axis=0,
                     )
+
+                logger.debug(f"State: {state}")
 
                 inputs: Dict[str, Any] = {
                     "images": images,
@@ -190,6 +191,7 @@ try:
                 try:
                     if len(actions_queue) == 0:
                         actions = self.sample_actions(inputs)
+                        logger.debug(f"Actions: {actions}")
                         # Normalize actions to shape (T, action_dim)
                         if not isinstance(actions, np.ndarray):
                             actions = np.array(actions)
@@ -198,6 +200,8 @@ try:
                         actions_queue.extend(actions)
 
                     current_actions = actions_queue.popleft()
+                    logger.debug(f"Current actions: {current_actions}")
+
                 except Exception as e:
                     logger.warning(
                         f"Failed to get actions from remote policy: {e}. Exiting AI control loop."
@@ -215,11 +219,9 @@ try:
                     start = robot_index * 6
                     end = start + 6
                     target_position = action_list[start:end]
-                    robots[robot_index].write_joint_positions(
-                        angles=target_position,
-                        unit=unit,
-                        min_value=min_angle,
-                        max_value=max_angle,
+                    robots[robot_index].set_motors_positions(
+                        q_target_rad=target_position,
+                        enable_gripper=True,
                     )
 
                 # Pace the loop
