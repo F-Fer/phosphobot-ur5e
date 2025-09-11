@@ -191,6 +191,8 @@ export function AIControlPage() {
       angle_format: selectedAngleFormat,
       min_angle: selectedAngleFormat === "other" ? minAngle : undefined,
       max_angle: selectedAngleFormat === "other" ? maxAngle : undefined,
+      openpi_url: selectedModelType === "openpi_remote" ? openpiUrl : undefined,
+      openpi_port: selectedModelType === "openpi_remote" ? openpiPort : undefined,
     });
 
     if (!response) {

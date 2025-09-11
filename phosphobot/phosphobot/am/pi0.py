@@ -20,20 +20,33 @@ try:
     class Pi0(ActionModel):
         def __init__(
             self,
-            server_url: str = "http://localhost",
-            server_port: int = 8080,
+            server_url: str = "http://127.0.0.1",
+            server_port: int = 8000,
             image_keys=["observation/image", "observation/wrist_image"],
         ):
+            if server_url is None:
+                logger.error("Server URL is not set. Please set the server URL.")
+                raise ValueError("Server URL is not set. Please set the server URL.")
+            if server_port is None:
+                logger.error("Server port is not set. Please set the server port.")
+                raise ValueError("Server port is not set. Please set the server port.")
+
             super().__init__(server_url, server_port)
+            self.server_url = server_url
+            self.server_port = server_port
+
             self.required_input_keys: List[str] = ["images", "state", "prompt"]
             self.image_keys = image_keys
 
             # Instantiate the client
             try:
+                logger.info(f"Initializing Pi0 with server_url: {server_url} and server_port: {server_port}")
                 self.client = websocket_client_policy.WebsocketClientPolicy(
-                host=self.server_url,
-                port=self.server_port,
+                    host=self.server_url,
+                    port=self.server_port,
+                    api_key=None,
                 )
+                logger.info(f"Successfully connected to the server: {self.client.get_server_metadata()}")
             except Exception as e:
                 logger.error(f"Error instantiating the client: {e}")
                 raise e
@@ -153,7 +166,7 @@ try:
                     control_signal.stop()
                     logger.error("No robot connected. Exiting AI control loop.")
                     break
-
+                # TODO: Check this
                 state = robots[0].read_joints_position(
                     unit=unit, max_value=max_angle, min_value=min_angle
                 )
