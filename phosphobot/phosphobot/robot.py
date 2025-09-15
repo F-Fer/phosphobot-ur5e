@@ -139,19 +139,10 @@ class RobotConnectionManager:
         sim.reset()
         self._all_robots = []
 
-        # If we are only simulating, load the UR5e URDF via the generic URDF loader
+        # If we are only simulating, we can just use the SO100Hardware class
         if config.ONLY_SIMULATION:
-            logger.debug("ONLY_SIMULATION is set to True. Loading UR5e via URDFLoader.")
-            urdf_path = str(get_resources_path() / "urdf" / "ur5e" / "urdf" / "ur5e.urdf")
-            # Indices are URDF-dependent; these defaults allow loading and basic kinematics in sim.
-            # Adjust in UI/admin later if needed.
-            self._all_robots = [
-                URDFLoader(
-                    urdf_path=urdf_path,
-                    end_effector_link_index=6,
-                    gripper_joint_index=-1,
-                )
-            ]
+            logger.debug("ONLY_SIMULATION is set to True. Using UR5e in simulation.")
+            self._all_robots = [UR5eHardware(only_simulation=True)]
             return
 
         # Keep track of connected devices by port name and serial to avoid duplicates

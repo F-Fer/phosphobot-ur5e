@@ -166,7 +166,15 @@ class UR5eHardware(BaseManipulator):
         pass
 
     def control_gripper(self, open_command: float, **kwargs: Any) -> None:
-        # Open/close Robotiq on UR controller; also mirror to sim if needed (no sim gripper for UR5e)
+        # Open/close Robotiq on UR controller; mirror to sim only if hardware present.
+        if not self.is_connected:
+            # UR5e simulated URDF has no gripper joint; keep internal state only.
+            try:
+                import numpy as _np  # local import to avoid global pollution
+                self.closing_gripper_value = float(_np.clip(open_command, 0.0, 1.0))
+            except Exception:
+                self.closing_gripper_value = float(max(0.0, min(1.0, open_command)))
+            return
         self._moveGripper(int(open_command * 255))
 
     def get_observation(self) -> tuple[np.ndarray, np.ndarray]:
@@ -342,7 +350,8 @@ class UR5eHardware(BaseManipulator):
         self, q_target_rad: np.ndarray, enable_gripper: bool = True
         ) -> None:
         if not self.is_connected:
-            return
+            # In simulation-only, update the PyBullet robot via the base implementation
+            return super().set_motors_positions(q_target_rad, enable_gripper)
         # Determine arm and gripper components robustly
         arm_dof = len(self.SERVO_IDS)
         arm_q = q_target_rad[:arm_dof]
