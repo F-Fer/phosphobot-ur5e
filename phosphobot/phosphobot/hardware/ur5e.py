@@ -243,6 +243,9 @@ class UR5eHardware(BaseManipulator):
         pos = curr[:3]
         rotvec = curr[3:6]
 
+        print(f"target_position: {target_position}")
+        print(f"target_orientation_rad: {target_orientation_rad}")
+
         dx, dy, dz = [float(v) if v is not None else 0.0 for v in target_position]
         new_pos = pos + np.array([dx, dy, dz], dtype=float)
 

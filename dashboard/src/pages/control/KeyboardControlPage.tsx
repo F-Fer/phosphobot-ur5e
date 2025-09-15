@@ -85,8 +85,10 @@ export function KeyboardControl() {
     v: { x: 0, y: 0, z: -STEP_SIZE, rz: 0, rx: 0, ry: 0 },
     ArrowUp: { x: STEP_SIZE, y: 0, z: 0, rz: 0, rx: 0, ry: 0 },
     ArrowDown: { x: -STEP_SIZE, y: 0, z: 0, rz: 0, rx: 0, ry: 0 },
-    ArrowRight: { x: 0, y: 0, z: 0, rz: -STEP_SIZE * 3.14, rx: 0, ry: 0 },
-    ArrowLeft: { x: 0, y: 0, z: 0, rz: STEP_SIZE * 3.14, rx: 0, ry: 0 },
+    ArrowRight: { x: 0, y: STEP_SIZE, z: 0, rz: 0, rx: 0, ry: 0 },
+    ArrowLeft: { x: 0, y: -STEP_SIZE, z: 0, rz: 0, rx: 0, ry: 0 },
+    e: { x: 0, y: 0, z: 0, rz: STEP_SIZE * 3.14, rx: 0, ry: 0 },
+    t: { x: 0, y: 0, z: 0, rz: -STEP_SIZE * 3.14, rx: 0, ry: 0 },
     d: { x: 0, y: 0, z: 0, rz: 0, rx: STEP_SIZE * 3.14, ry: 0 },
     g: { x: 0, y: 0, z: 0, rz: 0, rx: -STEP_SIZE * 3.14, ry: 0 },
     b: { x: 0, y: 0, z: 0, rz: 0, rx: 0, ry: STEP_SIZE * 3.14 },
@@ -393,12 +395,22 @@ export function KeyboardControl() {
     },
     {
       key: "B",
-      description: "Wrist roll clockwise",
+      description: "Wrist pitch back",
       icon: <RotateCw className="size-5" />,
     },
     {
       key: "C",
+      description: "Wrist pitch forward",
+      icon: <RotateCcw className="size-5" />,
+    },
+    {
+      key: "E",
       description: "Wrist roll counter-clockwise",
+      icon: <RotateCw className="size-5" />,
+    },
+    {
+      key: "T",
+      description: "Wrist roll clockwise",
       icon: <RotateCcw className="size-5" />,
     },
     {

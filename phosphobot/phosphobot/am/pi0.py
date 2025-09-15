@@ -21,8 +21,7 @@ try:
         def __init__(
             self,
             server_url: str = "http://127.0.0.1",
-            server_port: int = 8000,
-            image_keys=["observation/exterior_image_1_left", "observation/wrist_image_left"],
+            server_port: int = 8000
         ):
             if server_url is None:
                 logger.error("Server URL is not set. Please set the server URL.")
@@ -34,9 +33,8 @@ try:
             super().__init__(server_url, server_port)
             self.server_url = server_url
             self.server_port = server_port
-
             self.required_input_keys: List[str] = ["images", "state", "prompt"]
-            self.image_keys = image_keys
+            self.image_keys = ["observation/exterior_image_1_left", "observation/wrist_image_left"]
 
             # Instantiate the client
             try:
@@ -68,9 +66,8 @@ try:
 
 
         def sample_actions(self, inputs: dict) -> np.ndarray:
-            # TODO: Why does DROID expect joint_pos to have 7 dimensions?
             observation = {
-                "observation/joint_position": inputs["state"],
+                "observation/joint_position": inputs["state"][:7],
                 "observation/gripper_position": inputs["state"][-1],
                 "prompt": inputs["prompt"]
             }
@@ -221,7 +218,7 @@ try:
                     target_position = action_list[start:end]
                     robots[robot_index].set_motors_positions(
                         q_target_rad=target_position,
-                        enable_gripper=True,
+                        enable_gripper=True
                     )
 
                 # Pace the loop

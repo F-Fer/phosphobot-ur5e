@@ -490,9 +490,7 @@ class VideoCamera(threading.Thread, BaseCamera):
 
             success, _ = self.video.read()
             if not success:
-                logger.warning(f"""{self.camera_name}: Failed to grab first frame
-Camera id: {self.camera_id}
-Camera type: {self.camera_type}""")
+                logger.warning(f"""{self.camera_name}: Failed to grab first frame Camera id: {self.camera_id} Camera type: {self.camera_type}""")
                 return False
 
             return True
