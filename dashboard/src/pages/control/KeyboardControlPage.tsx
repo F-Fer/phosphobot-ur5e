@@ -365,12 +365,12 @@ export function KeyboardControl() {
     },
     {
       key: "ArrowLeft",
-      description: "Rotate Z counter-clockwise (yaw)",
+      description: "Move in the positive Y direction",
       icon: <ArrowLeft className="size-5" />,
     },
     {
       key: "ArrowRight",
-      description: "Rotate Z clockwise (yaw)",
+      description: "Move in the negative Y direction",
       icon: <ArrowRight className="size-5" />,
     },
     {
