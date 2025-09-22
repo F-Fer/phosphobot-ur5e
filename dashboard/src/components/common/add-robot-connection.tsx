@@ -66,6 +66,13 @@ const ROBOT_TYPES: RobotType[] = [
     fields: [{ name: "ip", label: "IP Address", type: "ip" }],
   },
   {
+    id: "gello-ur",
+    name: "Gello UR",
+    category: "manipulator",
+    image: placeholderSvg,
+    fields: [{ name: "device_name", label: "USB Port", type: "device_name" }],
+  },
+  {
     id: "unitree-go2",
     name: "Unitree Go2",
     category: "mobile",

@@ -14,6 +14,7 @@ from phosphobot.hardware import (
     BaseRobot,
     URDFLoader,
     UR5eHardware,
+    GelloUR,
     KochHardware,
     LeKiwi,
     PiperHardware,
@@ -30,6 +31,7 @@ rcm = None
 
 robot_name_to_class = {
     UR5eHardware.name: UR5eHardware,
+    GelloUR.name: GelloUR,
     SO100Hardware.name: SO100Hardware,
     KochHardware.name: KochHardware,
     WX250SHardware.name: WX250SHardware,

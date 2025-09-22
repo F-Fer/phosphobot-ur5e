@@ -10,3 +10,4 @@ from .wx250s import WX250SHardware
 from .phosphobot import RemotePhosphobot
 from .urdfloader import URDFLoader
 from .ur5e import UR5eHardware
+from .gello_ur import GelloUR
