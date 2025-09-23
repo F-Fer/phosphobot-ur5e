@@ -27,8 +27,8 @@ class GelloUR(BaseManipulator):
 
     BAUDRATE = 57600
     RESOLUTION = 4096
-    # (0*np.pi/2, 4*np.pi/2, 2*np.pi/2, 2*np.pi/2, 2*np.pi/2, 2*np.pi/2)
-    CALIBRATION_POSITION = [0, 4*np.pi/2, 2*np.pi/2, 2*np.pi/2, 2*np.pi/2, 2*np.pi/2]
+
+    SLEEP_POSITION = np.array([0, -1.57, 1.57, -1.57, -1.57, 0]) # Should be the same as UR5e 
 
     # Control table addresses
     ADDR_PRESENT_POSITION = 132
@@ -199,15 +199,6 @@ class GelloUR(BaseManipulator):
         if cfg is None:
             cfg = self.get_default_base_robot_config(voltage="6V")
 
-        # Update offsets with current readings
-        offsets = cfg.servos_offsets
-        if len(offsets) != len(self.SERVO_IDS):
-            offsets = [2048.0] * len(self.SERVO_IDS)
-        for i in range(len(self.SERVO_IDS) - 1): # -1 because the last one is the gripper
-            offsets[i] = float(current_units[i])
-        offsets[len(self.SERVO_IDS) - 1] = float(current_units[len(self.SERVO_IDS) - 1] - 575) # 575 is the travel of the gripper
-        cfg.servos_offsets = offsets
-
         # Ensure signs length and defaults
         signs = cfg.servos_offsets_signs
         if len(signs) != len(self.SERVO_IDS):
@@ -216,6 +207,15 @@ class GelloUR(BaseManipulator):
             # Pad/truncate to servo count
             signs = (default_signs + [1.0] * len(self.SERVO_IDS))[: len(self.SERVO_IDS)]
         cfg.servos_offsets_signs = signs
+
+        # Update offsets with current readings
+        offsets = cfg.servos_offsets
+        if len(offsets) != len(self.SERVO_IDS):
+            offsets = [2048.0] * len(self.SERVO_IDS)
+        for i in range(len(self.SERVO_IDS) - 1): # -1 because the last one is the gripper
+            offsets[i] = float(current_units[i]) - signs[i] * self.SLEEP_POSITION[i] * (self.RESOLUTION - 1) / (2 * np.pi)
+        offsets[len(self.SERVO_IDS) - 1] = float(current_units[len(self.SERVO_IDS) - 1] - 575) # 575 is the travel of the gripper
+        cfg.servos_offsets = offsets
 
         # Ensure calibration positions length
         cal_pos = cfg.servos_calibration_position
