@@ -204,6 +204,7 @@ class LeaderFollowerThread(threading.Thread):
                 for pair in self.robot_pairs:
                     leader, follower = pair.leader, pair.follower
                     pos_rad = leader.read_joints_position(unit="rad")
+                    print(f"Leader {leader.name} joint positions: {pos_rad}")
 
                     if any(np.isnan(pos_rad)):
                         logger.warning(

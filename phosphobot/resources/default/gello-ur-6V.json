@@ -1,15 +1,8 @@
 {
     "name": "gello-ur",
     "servos_voltage": 6.0,
-    "servos_offsets": [2048, 2048, 2048, 2048, 2048, 2048],
-    "servos_calibration_position": [2050, 2050, 2050, 2050, 2050, 2050],
-    "servos_offsets_signs": [1, 1, 1, 1, 1, 1],
-    "pid_gains": [
-      { "p_gain": 0, "i_gain": 0, "d_gain": 0 },
-      { "p_gain": 0, "i_gain": 0, "d_gain": 0 },
-      { "p_gain": 0, "i_gain": 0, "d_gain": 0 },
-      { "p_gain": 0, "i_gain": 0, "d_gain": 0 },
-      { "p_gain": 0, "i_gain": 0, "d_gain": 0 },
-      { "p_gain": 0, "i_gain": 0, "d_gain": 0 }
-    ]
+    "servos_offsets": [4096, 4096, 2048, 2048, 2048, 2048, 1660],
+    "servos_calibration_position": [2200, 2200, 2200, 2200, 2200, 2200, 2235],
+    "servos_offsets_signs": [1, 1, -1, 1, 1, 1, 1],
+    "pid_gains": []
   }

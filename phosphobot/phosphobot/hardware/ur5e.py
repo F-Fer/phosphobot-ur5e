@@ -19,6 +19,7 @@ from phosphobot.hardware.utils.robotiq_gripper import RobotiqGripper
 
 class UR5eHardware(BaseManipulator):
     name = "ur5e"
+    device_name = "ur5e"
 
     # URDF and kinematic indices for simulation
     URDF_FILE_PATH = str(get_resources_path() / "urdf" / "ur5e" / "urdf" / "ur5e.urdf")
@@ -27,7 +28,8 @@ class UR5eHardware(BaseManipulator):
     GRIPPER_JOINT_INDEX = -1     # no simulated gripper joint
 
     SERVO_IDS = [1, 2, 3, 4, 5, 6]
-    SLEEP_POSITION = np.array([-0.079, -1.98, 2.03, 3.70, -1.58, -4.78])
+    # SLEEP_POSITION = np.array([-0.079, -1.98, 2.03, 3.70, -1.58, -4.78])
+    SLEEP_POSITION = np.array([0, -1.57, 1.57, -1.57, -1.57, 0])
     RESOLUTION = 4096
 
     with_gripper = True
@@ -295,7 +297,8 @@ class UR5eHardware(BaseManipulator):
         if not self.is_connected or self.rtde_ctrl is None:
             await super().move_to_initial_position(open_gripper=True)
             return
-        q_home = [-0.079, -1.98, 2.03, 3.70, -1.58, -4.78]
+        # q_home = [-0.079, -1.98, 2.03, 3.70, -1.58, -4.78]
+        q_home = self.SLEEP_POSITION
         q_home = np.array(q_home)
         self.preempt_motion()
         self._moveJ(q_home)

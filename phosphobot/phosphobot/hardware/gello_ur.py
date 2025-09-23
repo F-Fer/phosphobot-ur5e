@@ -20,8 +20,8 @@ class GelloUR(BaseManipulator):
 
     AXIS_ORIENTATION = [0, 0, 1, 1]
 
-    END_EFFECTOR_LINK_INDEX = 6
-    GRIPPER_JOINT_INDEX = 7
+    END_EFFECTOR_LINK_INDEX = 5
+    GRIPPER_JOINT_INDEX = 6 # Index 6 is the gripper joint (from 0 to 6)
 
     SERVO_IDS = [1, 2, 3, 4, 5, 6, 7]
 
@@ -32,16 +32,8 @@ class GelloUR(BaseManipulator):
 
     # Control table addresses
     ADDR_PRESENT_POSITION = 132
-
-    @classmethod
-    def from_port(cls, port: ListPortInfo, **kwargs: Any) -> Optional["GelloUR"]:
-        """
-        Detect if the device is a Gello UR leader robot.
-        """
-        # TODO: check if the device is a Gello UR leader robot.
-        if port.pid == 21971 and port.serial_number in {"58CD176940"}:
-            return cls(device_name=port.device, serial_id=port.serial_number)
-        return None
+    GRIPPER_ADDR_PRESENT_POSITION = 195
+    GRIPPER_ADDR_GOAL_POSITION = 152
 
     async def connect(self) -> None:
 
@@ -59,11 +51,25 @@ class GelloUR(BaseManipulator):
             raise Exception("Failed to set the baud rate")
 
         self.is_connected = True
+        # Load calibration/config so unit conversions work
+        self.init_config()
 
     def disconnect(self) -> None:
         if self.portHandler.is_open:
             self.portHandler.closePort()
         self.is_connected = False
+
+    async def move_to_initial_position(self, open_gripper: bool = False) -> None:
+        """
+        Leader arm: do not command motors. Just set initial pose in sim.
+        """
+        # Ensure config is loaded for conversions elsewhere
+        self.init_config()
+        # Set initial pose to current simulated pose
+        (
+            self.initial_position,
+            self.initial_orientation_rad,
+        ) = self.forward_kinematics()
 
     def disable_torque(self) -> None:
         """
@@ -74,7 +80,7 @@ class GelloUR(BaseManipulator):
             logger.warning("GelloUR: Not connected. Run .connect() first.")
             return
 
-        logger.warning("GelloUR: This is a leader arm only. It does not have torque.")
+        # logger.warning("GelloUR: This is a leader arm only. It does not have torque.")
 
     def enable_torque(self) -> None:
         """
@@ -85,7 +91,7 @@ class GelloUR(BaseManipulator):
             logger.warning("GelloUR: Not connected. Run .connect() first.")
             return
 
-        logger.warning("GelloUR: This is a leader arm only. It does not have torque.")
+        # logger.warning("GelloUR: This is a leader arm only. It does not have torque.")
 
     def read_motor_torque(self, servo_id: int) -> Optional[float]:
         """
@@ -95,7 +101,7 @@ class GelloUR(BaseManipulator):
             logger.warning("GelloUR: Not connected. Run .connect() first.")
             return
         
-        logger.warning("GelloUR: This is a leader arm only. It does not have torque.")
+        logger.warning("GelloUR: This is a leader arm only. Cannot read torque.")
 
     def read_motor_voltage(self, servo_id: int) -> Optional[float]:
         """
@@ -105,7 +111,7 @@ class GelloUR(BaseManipulator):
             logger.warning("GelloUR: Not connected. Run .connect() first.")
             return
         
-        logger.warning("GelloUR: This is a leader arm only. It does not have voltage.")
+        logger.warning("GelloUR: This is a leader arm only. Cannot read voltage.")
 
     def write_motor_position(self, servo_id: int, units: int, **kwargs: Any) -> None:
         """
