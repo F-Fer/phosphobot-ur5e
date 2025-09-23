@@ -248,7 +248,7 @@ class LeaderFollowerThread(threading.Thread):
             pos_rad[0] = -pos_rad[0]
 
         follower.control_gripper(
-            open_command=leader._rad_to_open_command(
+            open_command=1.0 - leader._rad_to_open_command(
                 pos_rad[leader.GRIPPER_JOINT_INDEX]
             )
         )
