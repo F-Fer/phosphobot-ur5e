@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 from dynamixel_sdk import (
     COMM_SUCCESS,
@@ -34,6 +34,8 @@ class GelloUR(BaseManipulator):
     ADDR_PRESENT_POSITION = 132
     GRIPPER_ADDR_PRESENT_POSITION = 195
     GRIPPER_ADDR_GOAL_POSITION = 152
+
+    calibration_max_steps = 1
 
     async def connect(self) -> None:
 
@@ -148,6 +150,9 @@ class GelloUR(BaseManipulator):
                     f"Hardware Error for motor {servo_id}: {self.packetHandler.getRxPacketError(dxl_error)}"
                 )
             else:
+                # sign correction for 32-bit two's complement
+                if position > 0x7FFFFFFF:
+                    position -= 0x100000000
                 return position
         except Exception as e:
             logger.error(f"Error reading present position for motor {servo_id}: {e}")
@@ -155,14 +160,98 @@ class GelloUR(BaseManipulator):
         return None
 
     def calibrate_motors(self, **kwargs: Any) -> None:
-        # TODO: implement
+        """
+        Calibrate the motors.
+        """
         return None
+
+    async def calibrate(self) -> tuple[Literal["success", "in_progress", "error"], str]:
+        """
+        One-shot calibration for the leader arm:
+        - Reads current motor units and stores them as servos_offsets (defines 0 rad pose)
+        - Keeps existing signs and calibration positions if available, else from defaults
+        - Saves per-serial config to ~/.phosphobot/calibration/
+        """
+
+        if not self.is_connected:
+            self.calibration_current_step = 0
+            logger.warning(
+                "Robot is not connected. Cannot calibrate. Calibration sequence reset to 0."
+            )
+            return (
+                "error",
+                "Robot is not connected. Cannot calibrate. Calibration sequence reset to 0.",
+            )
+
+        # Read current joint positions in motor units
+        try:
+            current_units = self.read_joints_position(unit="motor_units", source="robot")
+            print(f"Current units: {current_units}")
+        except Exception as e:
+            logger.error(f"Failed reading joints for calibration: {e}")
+            return ("error", f"Failed reading joints: {e}")
+
+        if current_units is None or any(np.isnan(current_units)):
+            return ("error", "Invalid joint readings (None/NaN). Check connection.")
+
+        # Load existing/default config as baseline
+        cfg = self.config
+        if cfg is None:
+            cfg = self.get_default_base_robot_config(voltage="6V")
+
+        # Update offsets with current readings
+        offsets = cfg.servos_offsets
+        if len(offsets) != len(self.SERVO_IDS):
+            offsets = [2048.0] * len(self.SERVO_IDS)
+        for i in range(len(self.SERVO_IDS) - 1): # -1 because the last one is the gripper
+            offsets[i] = float(current_units[i])
+        offsets[len(self.SERVO_IDS) - 1] = float(current_units[len(self.SERVO_IDS) - 1] - 575) # 575 is the travel of the gripper
+        cfg.servos_offsets = offsets
+
+        # Ensure signs length and defaults
+        signs = cfg.servos_offsets_signs
+        if len(signs) != len(self.SERVO_IDS):
+            # Use common GELLO signs as default if mismatched
+            default_signs = [1.0, 1.0, -1.0, 1.0, 1.0, 1.0, 1.0]
+            # Pad/truncate to servo count
+            signs = (default_signs + [1.0] * len(self.SERVO_IDS))[: len(self.SERVO_IDS)]
+        cfg.servos_offsets_signs = signs
+
+        # Ensure calibration positions length
+        cal_pos = cfg.servos_calibration_position
+        if len(cal_pos) != len(self.SERVO_IDS):
+            cal_pos = [2200.0] * len(self.SERVO_IDS)
+        cal_pos[len(self.SERVO_IDS) - 1] = float(current_units[len(self.SERVO_IDS) - 1]) # Set the open position of the gripper
+        cfg.servos_calibration_position = cal_pos
+
+        # Persist per-serial config
+        # Ensure SERIAL_ID: if missing, derive from device_name basename
+        serial_id = getattr(self, "SERIAL_ID", None)
+        if not serial_id:
+            device_basename = (self.device_name or "no_device").split("/")[-1]
+            serial_id = device_basename.replace(" ", "_")
+            self.SERIAL_ID = serial_id
+
+        try:
+            saved_path = cfg.save_local(serial_id=self.SERIAL_ID)
+            self.config = cfg
+            print(f"Calibration saved to {saved_path}")
+        except Exception as e:
+            logger.error(f"Failed saving calibration: {e}")
+            return ("error", f"Failed saving calibration: {e}")
+
+        self.calibration_current_step = self.calibration_max_steps
+        return ("success", f"Calibration saved to {saved_path}")
 
 if __name__ == "__main__":
     import asyncio
+    import time
     gello_ur = GelloUR(device_name="/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTAAMO0B-if00-port0")
     asyncio.run(gello_ur.connect())
-    print("Connected to Gello UR")
-    print(gello_ur.read_motor_position(1))
-    gello_ur.disconnect()
-    print("Disconnected from Gello UR")
+    asyncio.run(gello_ur.calibrate())
+    while True:
+        joints_position = gello_ur.read_joints_position(unit="motor_units", source="robot")
+        # Parse to int
+        joints_position = [int(position) for position in joints_position]
+        print(joints_position)
+        time.sleep(0.5)
