@@ -28,7 +28,7 @@ class GelloUR(BaseManipulator):
     BAUDRATE = 57600
     RESOLUTION = 4096
 
-    SLEEP_POSITION = np.array([0, -1.57, 1.57, -1.57, -1.57, 0]) # Should be the same as UR5e 
+    CALIBRATION_POSITION = np.array([0, -1.57, 1.57, -1.57, -1.57, 0]) # Should be the same as UR5e 
 
     # Control table addresses
     ADDR_PRESENT_POSITION = 132
@@ -36,6 +36,18 @@ class GelloUR(BaseManipulator):
     GRIPPER_ADDR_GOAL_POSITION = 152
 
     calibration_max_steps = 1
+
+    @classmethod
+    def from_port(cls, port: ListPortInfo, **kwargs: Any) -> Optional["GelloUR"]:
+        """
+        Detect if the device is a GelloUR
+        """
+        # Restrict to known GelloUR FTDI serials to avoid claiming unrelated devices
+        # Example chip serial: FTAAMO0B (check dmesg or lsusb -v)
+        known_serials = {"FTAAMO0B"}
+        if port.pid == 24596 and getattr(port, "serial_number", None) in known_serials:
+            return cls(device_name=port.device, serial_id=port.serial_number)
+        return None
 
     async def connect(self) -> None:
 
@@ -213,7 +225,7 @@ class GelloUR(BaseManipulator):
         if len(offsets) != len(self.SERVO_IDS):
             offsets = [2048.0] * len(self.SERVO_IDS)
         for i in range(len(self.SERVO_IDS) - 1): # -1 because the last one is the gripper
-            offsets[i] = float(current_units[i]) - signs[i] * self.SLEEP_POSITION[i] * (self.RESOLUTION - 1) / (2 * np.pi)
+            offsets[i] = float(current_units[i]) - signs[i] * self.CALIBRATION_POSITION[i] * (self.RESOLUTION - 1) / (2 * np.pi)
         offsets[len(self.SERVO_IDS) - 1] = float(current_units[len(self.SERVO_IDS) - 1] - 575) # 575 is the travel of the gripper
         cfg.servos_offsets = offsets
 

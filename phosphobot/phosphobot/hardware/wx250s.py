@@ -75,13 +75,14 @@ class WX250SHardware(KochHardware):
 
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
-        self.set_gripper_in_position_control()
 
     def set_gripper_in_position_control(self) -> None:
         """
         This functions ensures the gripper motor is in position control mode since factory mode is PWM.
         """
 
+        if not getattr(self, "is_connected", False):
+            return
         # First limit the PWM speed
         self.packetHandler.write2ByteTxRx(
             self.portHandler,
@@ -90,7 +91,7 @@ class WX250SHardware(KochHardware):
             self.PWM_LIMIT_VALUE,
         )
 
-        # Then ensure it is in position control mdoe :
+        # Then ensure it is in position control mode
         self.packetHandler.write2ByteTxRx(
             self.portHandler,
             self.gripper_servo_id,
@@ -98,12 +99,22 @@ class WX250SHardware(KochHardware):
             self.POSITION_CONTROL_MODE,
         )
 
+    async def connect(self) -> None:
+        await super().connect()
+        try:
+            self.set_gripper_in_position_control()
+        except Exception:
+            # Don't fail discovery if gripper setup fails
+            pass
+
     @classmethod
     def from_port(cls, port: ListPortInfo, **kwargs: Any) -> Optional["WX250SHardware"]:
         """
         Detect if the device is a WX-250s
         """
-        # Serialid: FT94W6U7
-        if port.pid == 24596:
+        # Restrict to known WX-250S adapter serials to avoid claiming unrelated FTDI devices
+        # Example known serial: FT94W6U7
+        known_serials = {"FT94W6U7"}
+        if port.pid == 24596 and getattr(port, "serial_number", None) in known_serials:
             return cls(device_name=port.device, serial_id=port.serial_number)
         return None
