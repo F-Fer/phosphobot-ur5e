@@ -1,5 +1,6 @@
 "use client";
 
+import ur5eImg from "@/assets/ur5e.png";
 import placeholderSvg from "@/assets/placeholder.svg";
 import { AutoComplete } from "@/components/common/autocomplete";
 import { Button } from "@/components/ui/button";
@@ -62,7 +63,7 @@ const ROBOT_TYPES: RobotType[] = [
     id: "ur5e",
     name: "UR 5e",
     category: "manipulator",
-    image: placeholderSvg,
+    image: ur5eImg,
     fields: [{ name: "ip", label: "IP Address", type: "ip" }],
   },
   {
