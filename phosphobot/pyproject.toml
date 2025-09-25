@@ -50,6 +50,7 @@ dependencies = [
     "pyzmq>=27.0.2",
     "ur-rtde>=1.6.2",
     "openpi-client",
+    "ipykernel>=6.30.1",
 ]
 
 [dependency-groups]
