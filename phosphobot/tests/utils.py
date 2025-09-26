@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-from phosphobot.hardware import get_sim
 from phosphobot.hardware.base import BaseManipulator
 
 

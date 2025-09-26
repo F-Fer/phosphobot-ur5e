@@ -25,7 +25,7 @@ from phosphobot.hardware import (
     get_sim,
 )
 from phosphobot.models import RobotConfigStatus
-from phosphobot.utils import is_can_plugged, get_resources_path
+from phosphobot.utils import is_can_plugged
 
 rcm = None
 

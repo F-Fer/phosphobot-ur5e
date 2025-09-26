@@ -7,11 +7,9 @@ uv run pytest -s tests/api/test_rerun.py
 ```
 """
 
-import json
 import time
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import pytest
 import requests
 from loguru import logger
 
