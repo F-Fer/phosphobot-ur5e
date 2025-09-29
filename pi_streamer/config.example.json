@@ -1,0 +1,25 @@
+{
+  "endpoint": "tcp://0.0.0.0:5555",
+  "jpeg_quality": 80,
+  "reconnect_interval": 3.0,
+  "cameras": [
+    {
+      "device": "/dev/video0",
+      "topic": "zedm_left",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "fourcc": "MJPG"
+    },
+    {
+      "device": "/dev/video1",
+      "topic": "zedm_right",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "fourcc": "MJPG"
+    }
+  ]
+}
+
+

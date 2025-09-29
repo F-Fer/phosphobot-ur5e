@@ -7,27 +7,7 @@ to the Phosphobot workstation over ZeroMQ as multipart PUSH messages.
 Usage:
   uv run python streamer.py --config config.json
 
-Example config.json:
-{
-  "endpoint": "tcp://0.0.0.0:5555",
-  "cameras": [
-    {
-      "device": "/dev/video0",
-      "topic": "zedm_left",
-      "width": 1280,
-      "height": 720,
-      "fps": 30
-    },
-    {
-      "device": "/dev/video1",
-      "topic": "zedm_right",
-      "width": 1280,
-      "height": 720,
-      "fps": 30
-    }
-  ],
-  "jpeg_quality": 80
-}
+See `config.example.json` for a sample configuration.
 """
 
 from __future__ import annotations
