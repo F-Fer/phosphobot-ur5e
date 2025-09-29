@@ -9,7 +9,9 @@
       "width": 1280,
       "height": 720,
       "fps": 30,
-      "fourcc": "MJPG"
+      "fourcc": "MJPG",
+      "stereo": true,
+      "right_topic": "zedm_right"
     }
   ]
 }

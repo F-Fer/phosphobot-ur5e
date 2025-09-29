@@ -47,6 +47,14 @@ class CameraConfig(BaseModel):
         max_length=4,
         description="Optional fourcc (e.g., MJPG, YUYV). Auto if omitted.",
     )
+    stereo: bool = Field(
+        default=False,
+        description="Whether the camera outputs a side-by-side stereo frame",
+    )
+    right_topic: Optional[str] = Field(
+        default=None,
+        description="Optional topic override for the right eye (stereo only)",
+    )
 
 
 class StreamerConfig(BaseModel):
@@ -66,6 +74,8 @@ class StreamerConfig(BaseModel):
 class VideoCapture:
     config: CameraConfig
     capture: cv2.VideoCapture
+    left_topic: str
+    right_topic: Optional[str]
 
 
 class CameraStreamer:
@@ -84,7 +94,17 @@ class CameraStreamer:
             capture = self._open_capture(camera_cfg)
             if capture is None:
                 continue
-            self.captures.append(VideoCapture(camera_cfg, capture))
+            left_topic = camera_cfg.topic
+            right_topic = None
+            if camera_cfg.stereo:
+                right_topic = (
+                    camera_cfg.right_topic
+                    if camera_cfg.right_topic
+                    else f"{camera_cfg.topic}_right"
+                )
+            self.captures.append(
+                VideoCapture(camera_cfg, capture, left_topic, right_topic)
+            )
 
         if not self.captures:
             raise RuntimeError("No cameras could be opened; check configuration")
@@ -138,7 +158,10 @@ class CameraStreamer:
     async def _spawn_camera_task(self, video_capture: VideoCapture) -> None:
         cfg = video_capture.config
         capture = video_capture.capture
-        topic_bytes = cfg.topic.encode()
+        left_topic_bytes = video_capture.left_topic.encode()
+        right_topic_bytes = (
+            video_capture.right_topic.encode() if video_capture.right_topic else None
+        )
         interval = 1.0 / (cfg.fps or capture.get(cv2.CAP_PROP_FPS) or 30.0)
         last_log = time.time()
         frames_sent = 0
@@ -156,25 +179,39 @@ class CameraStreamer:
 
                 # Convert from BGR to RGB for consistency with Phosphobot
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                payload = self._encode_frame(frame_rgb)
-                message = {
-                    "shape": frame_rgb.shape,
-                    "dtype": str(frame_rgb.dtype),
-                    "timestamp": time.time(),
-                    "frame_bytes": payload,
-                }
+                frames_to_send: list[tuple[bytes, np.ndarray]]
+                if cfg.stereo and right_topic_bytes:
+                    h, w, _ = frame_rgb.shape
+                    mid = w // 2
+                    left_frame = frame_rgb[:, :mid]
+                    right_frame = frame_rgb[:, mid:]
+                    frames_to_send = [
+                        (left_topic_bytes, left_frame),
+                        (right_topic_bytes, right_frame),
+                    ]
+                else:
+                    frames_to_send = [(left_topic_bytes, frame_rgb)]
 
-                try:
-                    await self.socket.send_multipart(
-                        [topic_bytes, json.dumps(message).encode("utf-8")],
-                        flags=zmq.NOBLOCK,
-                    )
-                except zmq.Again:
-                    print(
-                        f"[WARN] Camera {cfg.topic}: outbound queue full, dropping frame"
-                    )
-                    await asyncio.sleep(0.01)
-                    continue
+                for topic_bytes, payload_frame in frames_to_send:
+                    message = {
+                        "shape": payload_frame.shape,
+                        "dtype": str(payload_frame.dtype),
+                        "timestamp": time.time(),
+                        "frame_bytes": self._encode_frame(payload_frame),
+                        "encoding": "raw",
+                    }
+
+                    try:
+                        await self.socket.send_multipart(
+                            [topic_bytes, json.dumps(message).encode("utf-8")],
+                            flags=zmq.NOBLOCK,
+                        )
+                    except zmq.Again:
+                        print(
+                            f"[WARN] Camera {cfg.topic}: outbound queue full, dropping frame"
+                        )
+                        await asyncio.sleep(0.01)
+                        continue
 
                 frames_sent += 1
                 now = time.time()
@@ -193,12 +230,8 @@ class CameraStreamer:
             capture.release()
             print(f"[INFO] Camera {cfg.topic} capture closed")
 
-    def _encode_frame(self, frame: np.ndarray) -> bytes:
-        params = [int(cv2.IMWRITE_JPEG_QUALITY), int(self.config.jpeg_quality)]
-        ok, buffer = cv2.imencode(".jpg", frame, params)
-        if not ok:
-            raise RuntimeError("Failed to encode frame")
-        return b64encode(buffer).decode("ascii")
+    def _encode_frame(self, frame: np.ndarray) -> str:
+        return b64encode(frame.tobytes()).decode("ascii")
 
     async def shutdown(self) -> None:
         self._shutdown.set()

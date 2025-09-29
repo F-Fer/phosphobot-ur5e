@@ -20,6 +20,9 @@ edge device (e.g., Raspberry Pi 4, Jetson Nano) located near the cameras.
    uv sync
    ```
 5. Copy `config.example.json` to `config.json` and adjust devices/topics.
+   - Set `"stereo": true` for side-by-side cameras (e.g., ZED Mini). Optionally
+     set `"right_topic"` to control the topic name for the right eye; otherwise
+     `topic + "_right"` is used.
 6. Test locally:
    ```bash
    uv run python streamer.py --config config.json
