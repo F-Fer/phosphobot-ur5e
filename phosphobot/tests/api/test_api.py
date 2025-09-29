@@ -571,7 +571,7 @@ def check_parquet_file(path: Path):
     # Check the parquet file is a valid parquet
     try:
         parquet_parsed: pd.DataFrame = pd.read_parquet(path=path)
-    except Exception as e:
+    except Exception:
         raise AssertionError("[TEST_FAILURE] Parquet file is not a valid parquet")
 
     # Check the parquet file has the expected columns

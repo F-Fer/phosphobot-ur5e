@@ -14,6 +14,7 @@ from phosphobot.hardware import (
     BaseRobot,
     URDFLoader,
     UR5eHardware,
+    GelloUR,
     KochHardware,
     LeKiwi,
     PiperHardware,
@@ -24,12 +25,13 @@ from phosphobot.hardware import (
     get_sim,
 )
 from phosphobot.models import RobotConfigStatus
-from phosphobot.utils import is_can_plugged, get_resources_path
+from phosphobot.utils import is_can_plugged
 
 rcm = None
 
 robot_name_to_class = {
     UR5eHardware.name: UR5eHardware,
+    GelloUR.name: GelloUR,
     SO100Hardware.name: SO100Hardware,
     KochHardware.name: KochHardware,
     WX250SHardware.name: WX250SHardware,
@@ -160,6 +162,7 @@ class RobotConnectionManager:
                 continue
 
             for robot_class in [
+                GelloUR,
                 WX250SHardware,
                 KochHardware,
                 SO100Hardware,
@@ -172,14 +175,31 @@ class RobotConnectionManager:
                 logger.debug(
                     f"Trying to connect to {robot_class.name} on {port.device}."
                 )
-                robot = robot_class.from_port(port)
+                try:
+                    robot = robot_class.from_port(port)
+                except Exception as e:
+                    logger.warning(
+                        f"Error while probing {robot_class.name} on {port.device}: {e}. Skipping."
+                    )
+                    continue
                 if robot is None:
                     logger.debug(
                         f"Failed to create robot from {robot_class.name} on {port.device}."
                     )
                     continue
                 logger.debug(f"Robot created: {robot}")
-                await robot.connect()
+                try:
+                    await robot.connect()
+                except Exception as e:
+                    logger.warning(
+                        f"Error connecting to {robot_class.name} on {port.device}: {e}. Skipping."
+                    )
+                    # Ensure we don't keep half-initialized robots
+                    try:
+                        robot.disconnect()
+                    except Exception:
+                        pass
+                    continue
 
                 if robot is not None:
                     logger.success(f"Connected to {robot_class.name} on {port.device}.")

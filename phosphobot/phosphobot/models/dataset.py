@@ -664,7 +664,7 @@ To get started in robotics, [get your own phospho starter pack.](https://robots.
                     logger.error("Could not get username or org ID from token")
                     return
 
-            except Exception as e:
+            except Exception:
                 logger.warning(
                     "No user or org with write access found. Won't be able to push to Hugging Face."
                 )

@@ -837,7 +837,7 @@ def get_local_subnet() -> Optional[str]:
             addrs = netifaces.ifaddresses(iface)
         except Exception as e:
             logger.debug(f"Error getting addresses for interface {iface}: {e}")
-            logger.debug(f"Is the robot powered?")
+            logger.debug("Is the robot powered?")
             continue
         if netifaces.AF_INET in addrs:
             for addr_info in addrs[netifaces.AF_INET]:

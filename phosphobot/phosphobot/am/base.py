@@ -8,7 +8,6 @@ import av
 import numpy as np
 import requests  # type: ignore
 from huggingface_hub import HfApi
-from huggingface_hub.errors import HfHubHTTPError
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator, model_validator
 

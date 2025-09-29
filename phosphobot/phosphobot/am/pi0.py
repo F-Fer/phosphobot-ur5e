@@ -21,7 +21,8 @@ try:
         def __init__(
             self,
             server_url: str = "http://127.0.0.1",
-            server_port: int = 8000
+            server_port: int = 8000,
+            actions_are_delta: bool = True,
         ):
             if server_url is None:
                 logger.error("Server URL is not set. Please set the server URL.")
@@ -35,6 +36,8 @@ try:
             self.server_port = server_port
             self.required_input_keys: List[str] = ["images", "state", "prompt"]
             self.image_keys = ["observation/exterior_image_1_left", "observation/wrist_image_left"]
+            self.actions_are_delta = actions_are_delta
+            self._last_joint_targets: Optional[np.ndarray] = None
 
             # Instantiate the client
             try:
@@ -49,6 +52,101 @@ try:
                 logger.error(f"Error instantiating the client: {e}")
                 raise e
             
+        def _reset_action_state(self) -> None:
+            self._last_joint_targets = None
+
+        def _apply_joint_constraints(
+            self,
+            targets: np.ndarray,
+            robots: List[BaseManipulator],
+            per_robot_sizes: List[int],
+        ) -> np.ndarray:
+            """
+            Apply joint constraints to the targets. This is used to ensure that the targets are within the joint limits of the robots.
+            Args:
+                targets (np.ndarray): The targets to apply constraints to.
+                robots (List[BaseManipulator]): The robots to apply constraints to.
+                per_robot_sizes (List[int]): The sizes of the robots.
+            Returns:
+                np.ndarray: The constrained targets.
+            """
+            constrained = targets.copy()
+            offset = 0
+            for robot, size in zip(robots, per_robot_sizes):
+                arm_dof = getattr(robot, "num_actuated_joints", size)
+                arm_dof = int(min(arm_dof, size))
+                lower = getattr(robot, "lower_joint_limits", None)
+                upper = getattr(robot, "upper_joint_limits", None)
+
+                if lower is not None and upper is not None:
+                    try:
+                        lower_arr = np.asarray(lower, dtype=float)[:arm_dof]
+                        upper_arr = np.asarray(upper, dtype=float)[:arm_dof]
+                        constrained[offset : offset + arm_dof] = np.clip(
+                            constrained[offset : offset + arm_dof],
+                            lower_arr,
+                            upper_arr,
+                        )
+                    except Exception:
+                        pass
+
+                if size > arm_dof:
+                    constrained[offset + arm_dof : offset + size] = np.clip(
+                        constrained[offset + arm_dof : offset + size], 0.0, 1.0
+                    )
+
+                offset += size
+
+            return constrained
+
+        def _convert_delta_to_absolute(
+            self,
+            actions: np.ndarray,
+            base_joint_targets: np.ndarray,
+            robots: List[BaseManipulator],
+            per_robot_sizes: List[int],
+        ) -> np.ndarray:
+            """
+            Convert delta actions to absolute actions.
+            Args:
+                actions (np.ndarray): The delta actions to convert.
+                base_joint_targets (np.ndarray): The base joint targets.
+                robots (List[BaseManipulator]): The robots to apply constraints to.
+                per_robot_sizes (List[int]): The sizes of the robots.
+            Returns:
+                np.ndarray: The absolute actions.
+            """
+            deltas = np.asarray(actions, dtype=float)
+            if deltas.ndim == 1:
+                deltas = deltas.reshape(1, -1)
+
+            if base_joint_targets.ndim != 1:
+                base_joint_targets = base_joint_targets.reshape(-1)
+
+            if self._last_joint_targets is not None:
+                running = self._last_joint_targets.copy()
+            else:
+                running = base_joint_targets.copy()
+
+            if running.shape[0] != deltas.shape[1]:
+                logger.warning(
+                    "Pi0 delta actions length mismatch. Expected %s, received %s. Treating as absolute actions.",
+                    running.shape[0],
+                    deltas.shape[1],
+                )
+                return deltas
+
+            absolute_rows: List[np.ndarray] = []
+            for row in deltas:
+                if np.isnan(row).any() or np.isinf(row).any():
+                    row = np.nan_to_num(row, nan=0.0, posinf=0.0, neginf=0.0)
+                running = running + row
+                running = self._apply_joint_constraints(running, robots, per_robot_sizes)
+                absolute_rows.append(running.copy())
+
+            self._last_joint_targets = running.copy()
+            return np.stack(absolute_rows, axis=0)
+
 
         @classmethod
         def fetch_and_get_configuration(cls, model_id: str) -> ModelConfigurationResponse:
@@ -123,6 +221,7 @@ try:
 
             signal_marked_as_started = False
             actions_queue: deque = deque([])
+            self._reset_action_state()
 
             # Helper to resolve which camera id to use for each expected image key
             def resolve_camera_id(index: int, key: str) -> int:
@@ -166,16 +265,20 @@ try:
                     control_signal.stop()
                     logger.error("No robot connected. Exiting AI control loop.")
                     break
-                
-                state = robots[0].get_observation()[1] # Get the joints positions (idx 1)
-                for robot in robots[1:]:
-                    state = np.concatenate(
-                        (
-                            state,
-                            robot.get_observation()[1], # Get the joints positions (idx 1)
-                        ),
-                        axis=0,
-                    )
+
+                joint_vectors: List[np.ndarray] = []
+                for robot in robots:
+                    joints_position = robot.get_observation()[1]
+                    joint_vectors.append(np.asarray(joints_position, dtype=float))
+
+                if len(joint_vectors) == 0:
+                    control_signal.stop()
+                    logger.error("No joint data available. Exiting AI control loop.")
+                    break
+
+                per_robot_sizes = [vec.shape[0] for vec in joint_vectors]
+                state = np.concatenate(joint_vectors, axis=0)
+                current_joint_targets = state.copy()
 
                 logger.debug(f"State: {state}")
 
@@ -194,10 +297,24 @@ try:
                             actions = np.array(actions)
                         if actions.ndim == 1:
                             actions = actions.reshape(1, -1)
+                        if self.actions_are_delta:
+                            try:
+                                actions = self._convert_delta_to_absolute(
+                                    actions,
+                                    current_joint_targets,
+                                    robots,
+                                    per_robot_sizes,
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to convert delta actions to absolute: {e}. Using raw actions."
+                                )
+
                         actions_queue.extend(actions)
 
                     current_actions = actions_queue.popleft()
                     logger.debug(f"Current actions: {current_actions}")
+                    current_actions = np.asarray(current_actions, dtype=float).reshape(-1)
 
                 except Exception as e:
                     logger.warning(
@@ -211,15 +328,39 @@ try:
                     signal_marked_as_started = True
 
                 # Dispatch actions to robots
-                action_list = current_actions.tolist()
-                for robot_index in range(len(robots)):
-                    start = robot_index * 6
-                    end = start + 6
-                    target_position = action_list[start:end]
-                    robots[robot_index].set_motors_positions(
-                        q_target_rad=target_position,
-                        enable_gripper=True
+                total_expected = sum(per_robot_sizes)
+                if current_actions.shape[0] != total_expected:
+                    logger.warning(
+                        "Action length mismatch. Expected %s, received %s. Skipping dispatch this cycle.",
+                        total_expected,
+                        current_actions.shape[0],
                     )
+                    self._last_joint_targets = current_joint_targets.copy()
+                else:
+                    offset = 0
+                    for robot_index, robot in enumerate(robots):
+                        size = per_robot_sizes[robot_index]
+                        segment = current_actions[offset : offset + size]
+                        offset += size
+
+                        if segment.size == 0:
+                            continue
+
+                        arm_dof = getattr(robot, "num_actuated_joints", segment.size)
+                        arm_dof = int(min(arm_dof, segment.size))
+                        arm_commands = segment[:arm_dof]
+                        if segment.size > arm_dof:
+                            gripper_commands = segment[arm_dof:]
+                            target_vector = np.concatenate((arm_commands, gripper_commands))
+                        else:
+                            target_vector = arm_commands
+
+                        robot.set_motors_positions(
+                            q_target_rad=target_vector,
+                            enable_gripper=True
+                        )
+
+                    self._last_joint_targets = current_actions.copy()
 
                 # Pace the loop
                 elapsed_time = time.perf_counter() - start_time

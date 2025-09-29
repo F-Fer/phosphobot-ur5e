@@ -1,6 +1,5 @@
 import atexit
 import json
-import os
 import asyncio
 from abc import abstractmethod
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
@@ -1346,9 +1345,10 @@ class BaseManipulator(BaseRobot):
             )
         open_position = self.config.servos_calibration_position[-1]
         close_position = self.config.servos_offsets[-1]
+
         open_command = (
             self._radians_to_motor_units(
-                radians=radians, servo_id=self.GRIPPER_JOINT_INDEX
+                radians=radians, servo_id=self.gripper_servo_id
             )
             - close_position
         ) / (open_position - close_position)

@@ -574,7 +574,7 @@ class Gr00tN1(ActionModel):
                 **hf_model_config.model_dump(), checkpoints=branches
             )
 
-        except Exception as e:
+        except Exception:
             logger.info(
                 f"Couldn't load model {model_id} from Hugging Face Hub. Trying from local path."
             )
