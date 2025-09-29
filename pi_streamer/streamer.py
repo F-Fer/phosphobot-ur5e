@@ -131,6 +131,10 @@ class CameraStreamer:
         tasks = [self._spawn_camera_task(vc) for vc in self.captures]
         await asyncio.gather(*tasks)
 
+    def request_shutdown(self) -> None:
+        if not self._shutdown.is_set():
+            self._shutdown.set()
+
     async def _spawn_camera_task(self, video_capture: VideoCapture) -> None:
         cfg = video_capture.config
         capture = video_capture.capture
@@ -160,9 +164,17 @@ class CameraStreamer:
                     "frame_bytes": payload,
                 }
 
-                await self.socket.send_multipart(
-                    [topic_bytes, json.dumps(message).encode("utf-8")]
-                )
+                try:
+                    await self.socket.send_multipart(
+                        [topic_bytes, json.dumps(message).encode("utf-8")],
+                        flags=zmq.NOBLOCK,
+                    )
+                except zmq.Again:
+                    print(
+                        f"[WARN] Camera {cfg.topic}: outbound queue full, dropping frame"
+                    )
+                    await asyncio.sleep(0.01)
+                    continue
 
                 frames_sent += 1
                 now = time.time()
@@ -172,6 +184,9 @@ class CameraStreamer:
                     )
                     frames_sent = 0
                     last_log = now
+
+                if self._shutdown.is_set():
+                    break
 
                 await asyncio.sleep(interval)
         finally:
@@ -222,6 +237,7 @@ async def main_async(args: argparse.Namespace) -> None:
 
     def _signal_handler(*_: Any) -> None:
         print("[INFO] Shutdown signal received")
+        streamer.request_shutdown()
         stop_event.set()
 
     loop.add_signal_handler(signal.SIGINT, _signal_handler)

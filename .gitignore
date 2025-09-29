@@ -182,3 +182,5 @@ node_modules
 .testenv
 bullet3
 .cursor/
+
+./pi_streamer/config.json
