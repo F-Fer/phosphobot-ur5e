@@ -50,12 +50,14 @@ Create `/etc/systemd/system/pi-streamer.service`:
 [Unit]
 Description=Phosphobot Pi Streamer
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/pi_streamer
-ExecStart=/home/pi/.local/bin/uv run python streamer.py --config config.json
+WorkingDirectory=/home/pi/phosphobot-ur5e/pi_streamer
+Environment="PATH=/home/pi/phosphobot-ur5e/pi_streamer/.venv/bin:/usr/bin:/bin"
+ExecStart=/home/pi/phosphobot-ur5e/pi_streamer/.venv/bin/python streamer.py --config config.json
 Restart=always
 RestartSec=3
 
@@ -69,6 +71,38 @@ Then enable and start:
 sudo systemctl daemon-reload
 sudo systemctl enable --now pi-streamer
 ```
+
+### Detailed boot-start walkthrough
+
+If you have never created a service before, follow these steps:
+
+1. **Prepare the working copy**
+   ```bash
+   cd ~/phosphobot-ur5e/pi_streamer
+   uv sync
+   ```
+2. **Create the service file**
+   ```bash
+   sudo nano /etc/systemd/system/pi-streamer.service
+   ```
+   Paste the block above, then save (`Ctrl+O`, `Enter`) and exit (`Ctrl+X`).
+3. **Reload and enable**
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now pi-streamer
+   ```
+4. **Verify it’s running**
+   ```bash
+   systemctl status pi-streamer
+   ```
+   You should see `active (running)`.
+5. **Watch logs** (use `Ctrl+C` to exit):
+   ```bash
+   journalctl -u pi-streamer -f
+   ```
+
+Later, restart with `sudo systemctl restart pi-streamer`, or disable with
+`sudo systemctl disable --now pi-streamer`.
 
 ## Notes
 
