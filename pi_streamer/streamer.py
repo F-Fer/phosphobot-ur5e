@@ -241,8 +241,9 @@ class CameraStreamer:
 
     def _encode_frame(self, frame: np.ndarray) -> bytes:
         if self.config.encoding == "jpeg":
+            bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             params = [int(cv2.IMWRITE_JPEG_QUALITY), int(self.config.jpeg_quality)]
-            ok, buffer = cv2.imencode(".jpg", frame, params)
+            ok, buffer = cv2.imencode(".jpg", bgr_frame, params)
             if not ok:
                 raise RuntimeError("Failed to encode frame to JPEG")
             return buffer.tobytes()
