@@ -10,9 +10,11 @@ edge device (e.g., Raspberry Pi 4, Jetson Nano) located near the cameras.
 2. Install dependencies:
    ```bash
    sudo apt update
-   sudo apt install python3 python3-pip python3-opencv libatlas-base-dev ffmpeg
-   pip3 install uv
+   sudo apt install python3 python3-pip python3-opencv libatlas-base-dev ffmpeg pipx
+   pipx install uv
+   pipx ensurepath
    ```
+   
 3. Clone this repository and copy `pi_streamer/` to the device.
 4. Create a virtual env using `uv`:
    ```bash
@@ -23,6 +25,13 @@ edge device (e.g., Raspberry Pi 4, Jetson Nano) located near the cameras.
    - Set `"stereo": true` for side-by-side cameras (e.g., ZED Mini). Optionally
      set `"right_topic"` to control the topic name for the right eye; otherwise
      `topic + "_right"` is used.
+   - Prefer the stable `/dev/v4l/by-id/...` symlinks instead of `/dev/videoN`
+     so USB reordering or reboots do not break the mapping. Example:
+     `"device": "/dev/v4l/by-id/usb-Stereolabs_ZED-M_12345-video-index0"`.
+     List the available symlinks with:
+     ```bash
+     ls -l /dev/v4l/by-id
+     ```
 6. Test locally:
    ```bash
    uv run python streamer.py --config config.json
