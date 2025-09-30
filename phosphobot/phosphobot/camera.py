@@ -1011,19 +1011,30 @@ class ZMQCamera(VideoCamera):
 
     def _process_frame_data(self, data: dict) -> None:
         """Helper function to process a received data dictionary and update the frame."""
-        if not self.stream_initialized:
+        encoding = data.get("encoding", "raw")
+        frame_bytes = base64.b64decode(data["frame_bytes"])
+
+        if encoding == "jpeg":
+            bgr = cv2.imdecode(np.frombuffer(frame_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if bgr is None:
+                logger.warning(f"{self.camera_name}: Failed to decode JPEG frame")
+                return
+            rgb_frame = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            shape = rgb_frame.shape
+        else:
             shape = data["shape"]
+            rgb_flat = np.frombuffer(frame_bytes, dtype=np.dtype(data["dtype"]))
+            rgb_frame = rgb_flat.reshape(shape)
+
+        if not self.stream_initialized:
             self.height, self.width, _ = shape
             self.stream_initialized = True
             logger.success(
                 f"{self.camera_name}: Stream properties detected: {self.width}x{self.height}"
             )
 
-        frame_bytes = base64.b64decode(data["frame_bytes"])
-        frame = np.frombuffer(frame_bytes, dtype=np.dtype(data["dtype"]))
-        reconstructed_frame = frame.reshape(data["shape"])
         with self.lock:
-            self.last_frame = cv2.cvtColor(reconstructed_frame, cv2.COLOR_RGB2BGR)
+            self.last_frame = cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR)
 
     def run(self) -> None:
         """Polls the ZMQ PULL socket and manually filters messages by topic."""

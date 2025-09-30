@@ -32,6 +32,9 @@ edge device (e.g., Raspberry Pi 4, Jetson Nano) located near the cameras.
      ```bash
      ls -l /dev/v4l/by-id
      ```
+   - `encoding` controls bandwidth: `"jpeg"` compresses frames, `"raw"` keeps full RGB.
+   - Set `"only_send_left_image": true` to drop the right-eye payload while still
+     splitting locally (useful if downstream only needs the left image).
 6. Test locally:
    ```bash
    uv run python streamer.py --config config.json

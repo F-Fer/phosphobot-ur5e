@@ -27,6 +27,7 @@ import zmq
 import zmq.asyncio
 from pydantic import BaseModel, Field, ValidationError
 from base64 import b64encode
+from typing import Literal
 
 
 class CameraConfig(BaseModel):
@@ -55,6 +56,10 @@ class CameraConfig(BaseModel):
         default=None,
         description="Optional topic override for the right eye (stereo only)",
     )
+    only_send_left_image: bool = Field(
+        default=False,
+        description="If true and stereo, only publish the left eye frame",
+    )
 
 
 class StreamerConfig(BaseModel):
@@ -67,6 +72,10 @@ class StreamerConfig(BaseModel):
     )
     reconnect_interval: float = Field(
         default=3.0, ge=0.5, le=30.0, description="Seconds between reconnects"
+    )
+    encoding: Literal["raw", "jpeg"] = Field(
+        default="jpeg",
+        description="Frame encoding: raw RGB or JPEG-compressed",
     )
 
 
@@ -180,25 +189,25 @@ class CameraStreamer:
                 # Convert from BGR to RGB for consistency with Phosphobot
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frames_to_send: list[tuple[bytes, np.ndarray]]
-                if cfg.stereo and right_topic_bytes:
+                if cfg.stereo:
                     h, w, _ = frame_rgb.shape
                     mid = w // 2
                     left_frame = frame_rgb[:, :mid]
-                    right_frame = frame_rgb[:, mid:]
-                    frames_to_send = [
-                        (left_topic_bytes, left_frame),
-                        (right_topic_bytes, right_frame),
-                    ]
+                    frames_to_send = [(left_topic_bytes, left_frame)]
+                    if right_topic_bytes and not cfg.only_send_left_image:
+                        right_frame = frame_rgb[:, mid:]
+                        frames_to_send.append((right_topic_bytes, right_frame))
                 else:
                     frames_to_send = [(left_topic_bytes, frame_rgb)]
 
                 for topic_bytes, payload_frame in frames_to_send:
+                    encoded_bytes = self._encode_frame(payload_frame)
                     message = {
                         "shape": payload_frame.shape,
                         "dtype": str(payload_frame.dtype),
                         "timestamp": time.time(),
-                        "frame_bytes": self._encode_frame(payload_frame),
-                        "encoding": "raw",
+                        "frame_bytes": b64encode(encoded_bytes).decode("ascii"),
+                        "encoding": self.config.encoding,
                     }
 
                     try:
@@ -230,8 +239,15 @@ class CameraStreamer:
             capture.release()
             print(f"[INFO] Camera {cfg.topic} capture closed")
 
-    def _encode_frame(self, frame: np.ndarray) -> str:
-        return b64encode(frame.tobytes()).decode("ascii")
+    def _encode_frame(self, frame: np.ndarray) -> bytes:
+        if self.config.encoding == "jpeg":
+            params = [int(cv2.IMWRITE_JPEG_QUALITY), int(self.config.jpeg_quality)]
+            ok, buffer = cv2.imencode(".jpg", frame, params)
+            if not ok:
+                raise RuntimeError("Failed to encode frame to JPEG")
+            return buffer.tobytes()
+        # raw
+        return frame.tobytes()
 
     async def shutdown(self) -> None:
         self._shutdown.set()
