@@ -4,7 +4,7 @@
   "reconnect_interval": 3.0,
   "cameras": [
     {
-      "device": "/dev/video1",
+      "device": "/dev/video0",
       "topic": "zedm_left",
       "width": 1280,
       "height": 720,
@@ -12,6 +12,16 @@
       "fourcc": "MJPG",
       "stereo": true,
       "right_topic": "zedm_right"
+    },
+    {
+      "device": "/dev/video1",
+      "topic": "zed2i_left",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "fourcc": "MJPG",
+      "stereo": true,
+      "right_topic": "zed2i_right"
     }
   ]
 }
