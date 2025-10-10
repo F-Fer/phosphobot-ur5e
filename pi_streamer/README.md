@@ -1,6 +1,6 @@
 # Pi Streamer
 
-Lightweight ZeroMQ PUSH server that captures frames from USB cameras and sends
+Lightweight ZeroMQ PUB server that captures frames from USB cameras and sends
 them to the Phosphobot workstation. Intended for deployment on a USB3-capable
 edge device (e.g., Raspberry Pi 4, Jetson Nano) located near the cameras.
 

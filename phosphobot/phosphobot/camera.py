@@ -944,8 +944,8 @@ except ImportError:
 
 class ZMQCamera(VideoCamera):
     """
-    A camera that connects to a ZMQ PUSH socket, receiving JSON-serialized
-    data with base64-encoded camera frames and performing manual topic filtering.
+    A camera that connects to a ZMQ PUB socket, receiving JSON-serialized
+    data with base64-encoded camera frames.
     """
 
     camera_type: CameraTypes = "zmq"
@@ -979,21 +979,24 @@ class ZMQCamera(VideoCamera):
         return f"ZMQCamera(addr='{self.connect_to}', receives_all_topics)"
 
     def init_camera(self) -> bool:
-        """Initializes the ZMQ PULL socket."""
+        """Initializes the ZMQ SUB socket."""
         try:
-            logger.info(f"{self.camera_name}: Connecting to ZMQ PUSH server...")
+            logger.info(f"{self.camera_name}: Connecting to ZMQ PUB server...")
             self.context = zmq.Context()
-            self.socket = self.context.socket(zmq.PULL)
+            self.socket = self.context.socket(zmq.SUB)
             self.socket.setsockopt(zmq.RCVTIMEO, 2000)
             self.socket.connect(self.connect_to)
 
             if self.topic:
+                self.socket.setsockopt_string(zmq.SUBSCRIBE, self.topic)
                 logger.info(
-                    f"{self.camera_name}: Will manually filter for topic '{self.topic}'."
+                    f"{self.camera_name}: Subscribed to topic '{self.topic}'."
                 )
             else:
+                # Empty subscription receives all topics
+                self.socket.setsockopt(zmq.SUBSCRIBE, b"")
                 logger.warning(
-                    f"{self.camera_name}: No topic set, will process all received messages."
+                    f"{self.camera_name}: No topic set, subscribed to all topics."
                 )
 
             self.poller = zmq.Poller()
@@ -1001,7 +1004,7 @@ class ZMQCamera(VideoCamera):
             self.width, self.height = 0, 0
             self.fps = 30
 
-            logger.success(f"{self.camera_name}: ZMQ PULL connection established.")
+            logger.success(f"{self.camera_name}: ZMQ SUB connection established.")
             return True
         except Exception as e:
             logger.error(
@@ -1037,7 +1040,7 @@ class ZMQCamera(VideoCamera):
             self.last_frame = cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR)
 
     def run(self) -> None:
-        """Polls the ZMQ PULL socket and manually filters messages by topic."""
+        """Polls the ZMQ SUB socket for messages."""
         if not self.socket or not self.poller:
             logger.error(f"{self.camera_name}: Cannot run, ZMQ socket not initialized.")
             return

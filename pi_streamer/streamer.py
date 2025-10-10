@@ -2,7 +2,7 @@
 
 This script is intended to run on an edge device (e.g., Raspberry Pi 4)
 connected to USB cameras. It captures frames via OpenCV and publishes them
-to the Phosphobot workstation over ZeroMQ as multipart PUSH messages.
+to the Phosphobot workstation over ZeroMQ as multipart PUB/SUB messages.
 
 Usage:
   uv run python streamer.py --config config.json
@@ -64,7 +64,7 @@ class CameraConfig(BaseModel):
 
 class StreamerConfig(BaseModel):
     endpoint: str = Field(
-        "tcp://0.0.0.0:5555", description="ZMQ PUSH bind endpoint"
+        "tcp://0.0.0.0:5555", description="ZMQ PUB bind endpoint"
     )
     cameras: list[CameraConfig]
     jpeg_quality: int = Field(
@@ -92,7 +92,7 @@ class CameraStreamer:
         self.config = config
         self.loop = loop
         self.context = zmq.asyncio.Context.instance()
-        self.socket = self.context.socket(zmq.PUSH)
+        self.socket = self.context.socket(zmq.PUB)
         self.socket.setsockopt(zmq.SNDHWM, 3)
         self.socket.bind(self.config.endpoint)
         self.captures: list[VideoCapture] = []
