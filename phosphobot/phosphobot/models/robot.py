@@ -85,6 +85,12 @@ class BaseRobot(ABC):
         """
         raise NotImplementedError
 
+    async def refresh_connection(self) -> None:
+        """
+        Refresh the connection to the robot.
+        """
+        raise NotImplementedError
+
     def init_config(self) -> None:
         """
         Initialize the robot configuration.

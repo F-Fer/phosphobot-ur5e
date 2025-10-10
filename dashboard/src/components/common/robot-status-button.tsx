@@ -26,6 +26,7 @@ import {
   LoaderCircle,
   Moon,
   PlusCircle,
+  RefreshCcw,
   Unplug,
   X,
 } from "lucide-react";
@@ -127,6 +128,20 @@ function RobotStatusMenuItem({
     }
     const data = await fetchWithBaseUrl(
       `/robot/disconnect?robot_id=${robotId}`,
+      "POST",
+    );
+    if (data) {
+      mutate("/status");
+    }
+  };
+
+  const refreshRobotConnection = async () => {
+    if (!serverStatus) {
+      console.error("Server not available");
+      return;
+    }
+    const data = await fetchWithBaseUrl(
+      `/robot/refresh-connection?robot_id=${robotId}`,
       "POST",
     );
     if (data) {
@@ -257,6 +272,13 @@ function RobotStatusMenuItem({
           >
             <Unplug className="size-4" />
             <span>Disconnect robot</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => refreshRobotConnection()}
+            className="flex items-center gap-2 hover:text-destructive focus:text-destructive"
+          >
+            <RefreshCcw className="size-4" />
+            <span>Refresh robot connection</span>
           </DropdownMenuItem>
         </DropdownMenuSubContent>
       </DropdownMenuSub>

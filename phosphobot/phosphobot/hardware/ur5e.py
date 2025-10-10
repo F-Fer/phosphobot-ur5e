@@ -139,6 +139,13 @@ class UR5eHardware(BaseManipulator):
             self.is_connected = False
             logger.info("UR5e RTDE disconnected.")
 
+    async def refresh_connection(self) -> None:
+        """
+        Refresh the connection to the robot.
+        """
+        self.disconnect()
+        await self.connect()
+
     # BaseManipulator abstract method impls not used for UR (feetech-style), keep minimal stubs
     def enable_torque(self) -> None:
         pass

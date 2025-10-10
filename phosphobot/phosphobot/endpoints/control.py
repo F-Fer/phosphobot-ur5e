@@ -1347,6 +1347,30 @@ async def disconnect_robot(
             status_code=400, detail=f"Failed to remove robot connection {robot_id}: {e}"
         )
 
+@router.post("/robot/refresh-connection", response_model=StatusResponse)
+async def refresh_robot_connection(
+    robot_id: int = 0,
+    rcm: RobotConnectionManager = Depends(get_rcm),
+) -> StatusResponse:
+    """
+    Manually refresh the robot connection to the robot manager.
+    Useful for refreshing the connection to the robot if it is not working.
+    """
+    try:
+        await rcm.refresh_connection(robot_id=robot_id)
+        return StatusResponse(
+            status="ok",
+            message=f"Robot connection to {robot_id} refreshed successfully",
+        )
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(
+            f"Failed to refresh robot connection {robot_id}: {e}\n{traceback.format_exc()}"
+        )
+        raise HTTPException(
+            status_code=400, detail=f"Failed to refresh robot connection {robot_id}: {e}"
+        )
 
 @router.post("/robot/config", response_model=RobotConfigResponse)
 async def get_robot_config(
