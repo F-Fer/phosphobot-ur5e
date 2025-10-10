@@ -28,7 +28,7 @@ class UR5eHardware(BaseManipulator):
 
     SERVO_IDS = [1, 2, 3, 4, 5, 6]
     # SLEEP_POSITION = np.array([-0.079, -1.98, 2.03, 3.70, -1.58, -4.78])
-    SLEEP_POSITION = np.array([0, -1.57, 1.57, -1.57, -1.57, 0])
+    SLEEP_POSITION = np.array([0, -1.57, 1.57, -1.57, -1.57, -1.57])
     RESOLUTION = 4096
 
     with_gripper = True
