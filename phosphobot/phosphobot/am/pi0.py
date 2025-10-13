@@ -213,8 +213,8 @@ try:
                 # Dispatch actions to robots
                 action_list = current_actions.tolist()
                 for robot_index in range(len(robots)):
-                    start = robot_index * 6
-                    end = start + 6
+                    start = robot_index * 7
+                    end = start + 7
                     target_position = action_list[start:end]
                     robots[robot_index].set_motors_positions(
                         q_target_rad=target_position,
