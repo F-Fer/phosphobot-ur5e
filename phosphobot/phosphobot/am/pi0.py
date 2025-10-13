@@ -75,11 +75,11 @@ try:
             # Map each configured image key to the corresponding image input
             for i in range(0, len(self.image_keys)):
                 if i < len(inputs["images"]):
-                    observation[self.image_keys[i]] = image_tools.convert_to_uint8(image_tools.resize_with_pad(inputs["images"][i], 224, 224))
+                    observation[self.image_keys[i]] = inputs["images"][i] # image_tools.convert_to_uint8(image_tools.resize_with_pad(inputs["images"][i], 224, 224))
                 else:
                     logger.warning(f"Not enough images provided. Reusing the last available one. {len(inputs['images'])} images provided, {len(self.image_keys)} image keys expected.")
                     # If not enough images provided, reuse the last available one
-                    observation[self.image_keys[i]] = image_tools.convert_to_uint8(image_tools.resize_with_pad(inputs["images"][-1], 224, 224))
+                    observation[self.image_keys[i]] = inputs["images"][-1] # image_tools.convert_to_uint8(image_tools.resize_with_pad(inputs["images"][-1], 224, 224))
             
             # Call the remote server
             try:
@@ -157,10 +157,11 @@ try:
                     cam_id = resolve_camera_id(i, key)
                     frame = all_cameras.get_rgb_frame(camera_id=cam_id)
                     if frame is None:
+                        print(f"Camera {cam_id} not available.")
                         # Default to a black frame if camera not available
                         frame = np.zeros((240, 320, 3), dtype=np.uint8)
                     images.append(frame)
-
+                
                 # Read and concatenate robot joint states
                 if len(robots) == 0:
                     control_signal.stop()
