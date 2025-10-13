@@ -67,7 +67,7 @@ try:
 
         def sample_actions(self, inputs: dict) -> np.ndarray:
             observation = {
-                "observation/joint_position": inputs["state"][:7],
+                "observation/joint_position": inputs["state"][:6],
                 "observation/gripper_position": inputs["state"][-1],
                 "prompt": inputs["prompt"]
             }
@@ -80,7 +80,7 @@ try:
                     logger.warning(f"Not enough images provided. Reusing the last available one. {len(inputs['images'])} images provided, {len(self.image_keys)} image keys expected.")
                     # If not enough images provided, reuse the last available one
                     observation[self.image_keys[i]] = image_tools.convert_to_uint8(image_tools.resize_with_pad(inputs["images"][-1], 224, 224))
-
+            
             # Call the remote server
             try:
                 action_chunk = self.client.infer(observation)["actions"]
