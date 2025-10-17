@@ -76,6 +76,12 @@ interface GlobalStore {
   setZmqTopic: (topic: string) => void;
   urdfUseZmq: boolean;
   setUrdfUseZmq: (useZmq: boolean) => void;
+  prompt: string;
+  setPrompt: (prompt: string) => void;
+  openpiUrl: string;
+  setOpenpiUrl: (url: string) => void;
+  openpiPort: string;
+  setOpenpiPort: (port: string) => void;
 }
 
 const useGlobalStore = create(
@@ -175,6 +181,12 @@ const useGlobalStore = create(
       setZmqTopic: (topic: string) => set({ zmqTopic: topic }),
       urdfUseZmq: false,
       setUrdfUseZmq: (useZmq: boolean) => set({ urdfUseZmq: useZmq }),
+      prompt: "",
+      setPrompt: (prompt: string) => set({ prompt }),
+      openpiUrl: "",
+      setOpenpiUrl: (url: string) => set({ openpiUrl: url }),
+      openpiPort: "",
+      setOpenpiPort: (port: string) => set({ openpiPort: port }),
     }),
 
     {

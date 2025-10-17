@@ -54,11 +54,14 @@ type ModelConfiguration = {
 };
 
 export function AIControlPage() {
-  const [prompt, setPrompt] = useState("");
   const modelId = useGlobalStore((state) => state.modelId);
   const setModelId = useGlobalStore((state) => state.setModelId);
-  const [openpiUrl, setOpenpiUrl] = useState("");
-  const [openpiPort, setOpenpiPort] = useState("");
+  const prompt = useGlobalStore((state) => state.prompt);
+  const setPrompt = useGlobalStore((state) => state.setPrompt);
+  const openpiUrl = useGlobalStore((state) => state.openpiUrl);
+  const setOpenpiUrl = useGlobalStore((state) => state.setOpenpiUrl);
+  const openpiPort = useGlobalStore((state) => state.openpiPort);
+  const setOpenpiPort = useGlobalStore((state) => state.setOpenpiPort);
 
   const [showCassette, setShowCassette] = useState(false);
   const [speed, setSpeed] = useState(1.0);
