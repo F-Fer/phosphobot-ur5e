@@ -149,45 +149,46 @@ try:
             while control_signal.is_in_loop():
                 start_time = time.perf_counter()
 
-                # Build images list following configured keys
-                images: List[np.ndarray] = []
-                num_expected = max(1, len(self.image_keys))
-                for i in range(num_expected):
-                    key = self.image_keys[i]
-                    cam_id = resolve_camera_id(i, key)
-                    frame = all_cameras.get_rgb_frame(camera_id=cam_id)
-                    if frame is None:
-                        print(f"Camera {cam_id} not available.")
-                        # Default to a black frame if camera not available
-                        frame = np.zeros((240, 320, 3), dtype=np.uint8)
-                    images.append(frame)
-                
-                # Read and concatenate robot joint states
-                if len(robots) == 0:
-                    control_signal.stop()
-                    logger.error("No robot connected. Exiting AI control loop.")
-                    break
-                
-                state = robots[0].get_observation()[1] # Get the joints positions (idx 1)
-                for robot in robots[1:]:
-                    state = np.concatenate(
-                        (
-                            state,
-                            robot.get_observation()[1], # Get the joints positions (idx 1)
-                        ),
-                        axis=0,
-                    )
-
-                logger.debug(f"State: {state}")
-
-                inputs: Dict[str, Any] = {
-                    "images": images,
-                    "state": state,
-                    "prompt": prompt or "",
-                }
-
                 try:
                     if len(actions_queue) == 0:
+                        # Wait shortly, so state is accurate
+                        time.sleep(0.1)
+                        # Build images list following configured keys
+                        images: List[np.ndarray] = []
+                        num_expected = max(1, len(self.image_keys))
+                        for i in range(num_expected):
+                            key = self.image_keys[i]
+                            cam_id = resolve_camera_id(i, key)
+                            frame = all_cameras.get_rgb_frame(camera_id=cam_id)
+                            if frame is None:
+                                print(f"Camera {cam_id} not available.")
+                                # Default to a black frame if camera not available
+                                frame = np.zeros((240, 320, 3), dtype=np.uint8)
+                            images.append(frame)
+                        
+                        # Read and concatenate robot joint states
+                        if len(robots) == 0:
+                            control_signal.stop()
+                            logger.error("No robot connected. Exiting AI control loop.")
+                            break
+                        
+                        state = robots[0].get_observation()[1] # Get the joints positions (idx 1)
+                        for robot in robots[1:]:
+                            state = np.concatenate(
+                                (
+                                    state,
+                                    robot.get_observation()[1], # Get the joints positions (idx 1)
+                                ),
+                                axis=0,
+                            )
+
+                        logger.debug(f"State: {state}")
+
+                        inputs: Dict[str, Any] = {
+                            "images": images,
+                            "state": state,
+                            "prompt": prompt or "",
+                        }
                         actions = self.sample_actions(inputs)
                         logger.debug(f"Actions: {actions}")
                         # Normalize actions to shape (T, action_dim)
