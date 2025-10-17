@@ -109,5 +109,8 @@ Later, restart with `sudo systemctl restart pi-streamer`, or disable with
 - Ensure the edge device provides USB3 bandwidth and power for the ZED Mini.
 - Tune `jpeg_quality` and `fps` to match your network throughput.
 - Monitor `journalctl -u pi-streamer` for runtime diagnostics.
+```bash
+sudo ip route del default via 1.1.1.1 dev eth0
+```
 
 
