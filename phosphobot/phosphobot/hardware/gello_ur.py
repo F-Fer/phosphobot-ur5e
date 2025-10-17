@@ -28,7 +28,7 @@ class GelloUR(BaseManipulator):
     BAUDRATE = 57600
     RESOLUTION = 4096
 
-    CALIBRATION_POSITION = np.array([0, -1.57, 1.57, -1.57, -1.57, 0]) # Should be the same as UR5e 
+    CALIBRATION_POSITION = np.array([0, -1.57, 1.57, -1.57, -1.57, -1.57]) # Should be the same as UR5e 
 
     # Control table addresses
     ADDR_PRESENT_POSITION = 132

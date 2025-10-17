@@ -334,23 +334,22 @@ class UR5eHardware(BaseManipulator):
         return super().forward_kinematics(sync_robot_pos=sync_robot_pos)
 
     def get_info_for_dataset(self) -> BaseRobotInfo:
-        if self.with_gripper:
-            num_joints = len(self.SERVO_IDS) + 1
-        else:
-            num_joints = len(self.SERVO_IDS)
+        num_joints = len(self.SERVO_IDS)
+        dof = num_joints
         names = [f"motor_{i}" for i in range(num_joints)]
         if self.with_gripper:
             names.append("gripper")
+            dof += 1
         return BaseRobotInfo(
             robot_type=self.name,
             action=FeatureDetails(
                 dtype="float32",
-                shape=[num_joints],
+                shape=[dof],
                 names=names,
             ),
             observation_state=FeatureDetails(
                 dtype="float32",
-                shape=[num_joints],
+                shape=[dof],
                 names=names,
             ),
         )
