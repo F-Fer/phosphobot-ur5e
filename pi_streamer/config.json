@@ -11,7 +11,7 @@
         "height": 480,
         "fps": 30,
         "fourcc": "MJPG",
-        "stereo": false,
+        "stereo": true,
         "right_topic": "zedm_right",
         "only_send_left_image": true
       },
