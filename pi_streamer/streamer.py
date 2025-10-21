@@ -19,7 +19,7 @@ import signal
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Tuple, List
 
 import cv2
 import numpy as np
@@ -181,9 +181,14 @@ class CameraStreamer:
 
         try:
             while not self._shutdown.is_set():
-                loop_start = time.perf_counter()
-                ok, frame = capture.read()
-                if not ok or frame is None:
+                frames_payloads = await asyncio.to_thread(
+                    self._capture_and_encode_frames,
+                    video_capture,
+                    left_topic_bytes,
+                    right_topic_bytes,
+                )
+
+                if frames_payloads is None:
                     print(
                         f"[WARN] Camera {cfg.device} read failed; retrying in"
                         f" {self.config.reconnect_interval}s"
@@ -192,23 +197,10 @@ class CameraStreamer:
                     next_tick = time.perf_counter()
                     continue
 
-                frames_to_send: list[tuple[bytes, np.ndarray]]
-                if cfg.stereo:
-                    h, w, _ = frame.shape
-                    mid = w // 2
-                    left_frame = frame[:, :mid]
-                    frames_to_send = [(left_topic_bytes, left_frame)]
-                    if right_topic_bytes and not cfg.only_send_left_image:
-                        right_frame = frame[:, mid:]
-                        frames_to_send.append((right_topic_bytes, right_frame))
-                else:
-                    frames_to_send = [(left_topic_bytes, frame)]
-
-                for topic_bytes, payload_frame in frames_to_send:
-                    encoded_bytes = self._encode_frame(payload_frame)
+                for topic_bytes, encoded_bytes, shape, dtype in frames_payloads:
                     message = {
-                        "shape": payload_frame.shape,
-                        "dtype": str(payload_frame.dtype),
+                        "shape": shape,
+                        "dtype": dtype,
                         "timestamp": time.time(),
                         "frame_bytes": b64encode(encoded_bytes).decode("ascii"),
                         "encoding": self.config.encoding,
@@ -264,6 +256,45 @@ class CameraStreamer:
         await asyncio.sleep(0.1)
         self.socket.close(linger=0)
         self.context.term()
+
+    def _capture_and_encode_frames(
+        self,
+        video_capture: VideoCapture,
+        left_topic_bytes: bytes,
+        right_topic_bytes: Optional[bytes],
+    ) -> Optional[List[Tuple[bytes, bytes, Tuple[int, int, int], str]]]:
+        capture = video_capture.capture
+        cfg = video_capture.config
+
+        ok, frame = capture.read()
+        if not ok or frame is None:
+            return None
+
+        frames_to_process: List[Tuple[bytes, np.ndarray]]
+        if cfg.stereo:
+            h, w, _ = frame.shape
+            mid = w // 2
+            left_frame = frame[:, :mid]
+            frames_to_process = [(left_topic_bytes, left_frame)]
+            if right_topic_bytes and not cfg.only_send_left_image:
+                right_frame = frame[:, mid:]
+                frames_to_process.append((right_topic_bytes, right_frame))
+        else:
+            frames_to_process = [(left_topic_bytes, frame)]
+
+        frames_payloads: List[Tuple[bytes, bytes, Tuple[int, int, int], str]] = []
+        for topic_bytes, payload_frame in frames_to_process:
+            encoded_bytes = self._encode_frame(payload_frame)
+            frames_payloads.append(
+                (
+                    topic_bytes,
+                    encoded_bytes,
+                    tuple(int(x) for x in payload_frame.shape),
+                    str(payload_frame.dtype),
+                )
+            )
+
+        return frames_payloads
 
 
 def load_config(path: Path) -> StreamerConfig:
