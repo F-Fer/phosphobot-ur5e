@@ -24,7 +24,7 @@
         "fourcc": "MJPG",
         "stereo": true,
         "right_topic": "zed2i_right",
-        "only_send_left_image": true
+        "only_send_left_image": false
       }
     ]
   }
