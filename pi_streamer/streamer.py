@@ -171,12 +171,17 @@ class CameraStreamer:
         right_topic_bytes = (
             video_capture.right_topic.encode() if video_capture.right_topic else None
         )
-        interval = 1.0 / (cfg.fps or capture.get(cv2.CAP_PROP_FPS) or 30.0)
+        target_fps = cfg.fps or capture.get(cv2.CAP_PROP_FPS) or 30.0
+        if target_fps <= 0:
+            target_fps = 30.0
+        interval = 1.0 / target_fps
+        next_tick = time.perf_counter()
         last_log = time.time()
         frames_sent = 0
 
         try:
             while not self._shutdown.is_set():
+                loop_start = time.perf_counter()
                 ok, frame = capture.read()
                 if not ok or frame is None:
                     print(
@@ -184,6 +189,7 @@ class CameraStreamer:
                         f" {self.config.reconnect_interval}s"
                     )
                     await asyncio.sleep(self.config.reconnect_interval)
+                    next_tick = time.perf_counter()
                     continue
 
                 # Convert from BGR to RGB for consistency with Phosphobot
@@ -234,7 +240,13 @@ class CameraStreamer:
                 if self._shutdown.is_set():
                     break
 
-                await asyncio.sleep(interval)
+                next_tick += interval
+                sleep_for = next_tick - time.perf_counter()
+                if sleep_for <= 0:
+                    next_tick = time.perf_counter()
+                    await asyncio.sleep(0)
+                else:
+                    await asyncio.sleep(sleep_for)
         finally:
             capture.release()
             print(f"[INFO] Camera {cfg.topic} capture closed")
