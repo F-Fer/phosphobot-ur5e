@@ -1018,16 +1018,18 @@ class ZMQCamera(VideoCamera):
         frame_bytes = base64.b64decode(data["frame_bytes"])
 
         if encoding == "jpeg":
-            bgr = cv2.imdecode(np.frombuffer(frame_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+            bgr = cv2.imdecode(
+                np.frombuffer(frame_bytes, dtype=np.uint8), cv2.IMREAD_COLOR
+            )
             if bgr is None:
                 logger.warning(f"{self.camera_name}: Failed to decode JPEG frame")
                 return
-            rgb_frame = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-            shape = rgb_frame.shape
+            shape = bgr.shape
         else:
             shape = data["shape"]
             rgb_flat = np.frombuffer(frame_bytes, dtype=np.dtype(data["dtype"]))
             rgb_frame = rgb_flat.reshape(shape)
+            bgr = cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR)
 
         if not self.stream_initialized:
             self.height, self.width, _ = shape
@@ -1037,7 +1039,7 @@ class ZMQCamera(VideoCamera):
             )
 
         with self.lock:
-            self.last_frame = cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR)
+            self.last_frame = bgr
 
     def run(self) -> None:
         """Polls the ZMQ SUB socket for messages."""

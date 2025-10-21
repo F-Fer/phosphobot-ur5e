@@ -192,19 +192,17 @@ class CameraStreamer:
                     next_tick = time.perf_counter()
                     continue
 
-                # Convert from BGR to RGB for consistency with Phosphobot
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frames_to_send: list[tuple[bytes, np.ndarray]]
                 if cfg.stereo:
-                    h, w, _ = frame_rgb.shape
+                    h, w, _ = frame.shape
                     mid = w // 2
-                    left_frame = frame_rgb[:, :mid]
+                    left_frame = frame[:, :mid]
                     frames_to_send = [(left_topic_bytes, left_frame)]
                     if right_topic_bytes and not cfg.only_send_left_image:
-                        right_frame = frame_rgb[:, mid:]
+                        right_frame = frame[:, mid:]
                         frames_to_send.append((right_topic_bytes, right_frame))
                 else:
-                    frames_to_send = [(left_topic_bytes, frame_rgb)]
+                    frames_to_send = [(left_topic_bytes, frame)]
 
                 for topic_bytes, payload_frame in frames_to_send:
                     encoded_bytes = self._encode_frame(payload_frame)
@@ -253,9 +251,8 @@ class CameraStreamer:
 
     def _encode_frame(self, frame: np.ndarray) -> bytes:
         if self.config.encoding == "jpeg":
-            bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             params = [int(cv2.IMWRITE_JPEG_QUALITY), int(self.config.jpeg_quality)]
-            ok, buffer = cv2.imencode(".jpg", bgr_frame, params)
+            ok, buffer = cv2.imencode(".jpg", frame, params)
             if not ok:
                 raise RuntimeError("Failed to encode frame to JPEG")
             return buffer.tobytes()
