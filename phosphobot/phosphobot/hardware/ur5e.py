@@ -57,9 +57,9 @@ class UR5eHardware(BaseManipulator):
         # servoJ streaming parameters
         # Use a finite period so the controller gracefully holds until next update
         # and does not require a perfect 125 Hz stream from Python/HTTP loop
-        self.servoj_t = 0.05
-        self.servoj_lookahead = 0.08
-        self.servoj_gain = 300
+        self.servoj_t = 1.0 / 500
+        self.servoj_lookahead = 0.2
+        self.servoj_gain = 100
 
         # Gripper command throttling
         self._last_gripper_pos: Optional[int] = None
@@ -193,15 +193,16 @@ class UR5eHardware(BaseManipulator):
         joint angles for both entries.
         """
         if self.is_connected and self.rtde_rec is not None:
-            # First get the joint positions
-            joints_position = np.asarray(self.rtde_rec.getActualQ(), dtype=float)
-            gripper_position = self.gripper.get_current_position()/255
+            with self._rtde_lock:
+                # First get the joint positions
+                joints_position = np.asarray(self.rtde_rec.getActualQ(), dtype=float)
+                gripper_position = self.gripper.get_current_position()/255
 
-            joints_position = np.append(joints_position, gripper_position)
-            # Then get the state
-            tcp_pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
+                joints_position = np.append(joints_position, gripper_position)
+                # Then get the state
+                tcp_pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
 
-            state = np.append(tcp_pose, gripper_position)
+                state = np.append(tcp_pose, gripper_position)
         else:
             # Read from simulation if not connected
             joints_position = self.read_joints_position(unit="rad", source="sim")
@@ -372,6 +373,7 @@ class UR5eHardware(BaseManipulator):
         if self.rtde_ctrl is not None:
             with self._rtde_lock:
                 try:
+                    t_start = self.rtde_ctrl.initPeriod()
                     # servoJ(q, a, v, t=0, lookahead_time=0.1, gain=300)
                     self.rtde_ctrl.servoJ(
                         arm_q,
@@ -381,6 +383,7 @@ class UR5eHardware(BaseManipulator):
                         float(self.servoj_lookahead),
                         int(self.servoj_gain),
                     )
+                    self.rtde_ctrl.waitPeriod(t_start)
                 except Exception as e:
                     logger.warning(f"servoJ failed: {e}")
         if target_gripper_position is not None:
@@ -403,7 +406,7 @@ class UR5eHardware(BaseManipulator):
                 self.rtde_ctrl.moveJ(arm_q, self.speed, self.acc)
             except Exception as e:
                 logger.warning(f"moveJ failed: {e}")
-    
+
     def _moveGripper(self, target_gripper_position: int) -> None:
         """
         Move the gripper.
