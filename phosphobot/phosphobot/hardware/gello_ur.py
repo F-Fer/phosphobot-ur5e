@@ -1,4 +1,5 @@
 from typing import Any, Optional, Literal
+import threading
 
 from dynamixel_sdk import (
     COMM_SUCCESS,
@@ -36,6 +37,14 @@ class GelloUR(BaseManipulator):
     GRIPPER_ADDR_GOAL_POSITION = 152
 
     calibration_max_steps = 1
+    
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Thread lock to serialize Dynamixel SDK communication (NOT thread-safe)
+        self._dxl_lock = threading.Lock()
+        # Exponential smoothing for joint positions (like original Gello)
+        self._last_joint_positions: Optional[np.ndarray] = None
+        self._smoothing_alpha = 0.99  # Same as original Gello
 
     @classmethod
     def from_port(cls, port: ListPortInfo, **kwargs: Any) -> Optional["GelloUR"]:
@@ -140,42 +149,126 @@ class GelloUR(BaseManipulator):
     def read_motor_position(self, servo_id: int, **kwargs: Any) -> Optional[int]:
         """
         Read the position of a motor.
+        Thread-safe: uses lock to prevent concurrent Dynamixel communication.
         """
         if not self.is_connected:
             logger.warning("GelloUR: Not connected. Run .connect() first.")
-            return
+            return None
         
-        try:
-            (
-                position,
-                dxl_comm_result,
-                dxl_error,
-            ) = self.packetHandler.read4ByteTxRx(
-                self.portHandler, servo_id, self.ADDR_PRESENT_POSITION
-            )
-            if dxl_comm_result != COMM_SUCCESS:
-                logger.warning(
-                    f"Communication Error for motor {servo_id}: {self.packetHandler.getTxRxResult(dxl_comm_result)}"
+        # Dynamixel SDK is NOT thread-safe, must serialize all communication
+        with self._dxl_lock:
+            try:
+                (
+                    position,
+                    dxl_comm_result,
+                    dxl_error,
+                ) = self.packetHandler.read4ByteTxRx(
+                    self.portHandler, servo_id, self.ADDR_PRESENT_POSITION
                 )
-            elif dxl_error != 0:
-                logger.warning(
-                    f"Hardware Error for motor {servo_id}: {self.packetHandler.getRxPacketError(dxl_error)}"
-                )
-            else:
-                # sign correction for 32-bit two's complement
-                if position > 0x7FFFFFFF:
-                    position -= 0x100000000
-                return position
-        except Exception as e:
-            logger.error(f"Error reading present position for motor {servo_id}: {e}")
+                if dxl_comm_result != COMM_SUCCESS:
+                    logger.warning(
+                        f"Communication Error for motor {servo_id}: {self.packetHandler.getTxRxResult(dxl_comm_result)}"
+                    )
+                elif dxl_error != 0:
+                    logger.warning(
+                        f"Hardware Error for motor {servo_id}: {self.packetHandler.getRxPacketError(dxl_error)}"
+                    )
+                else:
+                    # sign correction for 32-bit two's complement
+                    if position > 0x7FFFFFFF:
+                        position -= 0x100000000
+                    return position
+            except Exception as e:
+                logger.error(f"Error reading present position for motor {servo_id}: {e}")
 
         return None
 
+    def read_group_motor_position(self) -> np.ndarray:
+        """
+        Read all motor positions with exponential smoothing (like original Gello).
+        This prevents sudden jumps from communication errors.
+        """
+        if not self.is_connected:
+            logger.warning("GelloUR: Not connected. Run .connect() first.")
+            return np.ones(len(self.SERVO_IDS)) * np.nan
+        
+        # Read all motors with lock protection
+        with self._dxl_lock:
+            current_positions = []
+            for servo_id in self.SERVO_IDS:
+                try:
+                    (
+                        position,
+                        dxl_comm_result,
+                        dxl_error,
+                    ) = self.packetHandler.read4ByteTxRx(
+                        self.portHandler, servo_id, self.ADDR_PRESENT_POSITION
+                    )
+                    if dxl_comm_result != COMM_SUCCESS or dxl_error != 0:
+                        # Communication error - use last known position if available
+                        if self._last_joint_positions is not None:
+                            current_positions.append(self._last_joint_positions[len(current_positions)])
+                        else:
+                            current_positions.append(2048.0)  # Center position
+                    else:
+                        # Sign correction for 32-bit two's complement
+                        if position > 0x7FFFFFFF:
+                            position -= 0x100000000
+                        current_positions.append(float(position))
+                except Exception as e:
+                    # Exception - use last known or center
+                    if self._last_joint_positions is not None:
+                        current_positions.append(self._last_joint_positions[len(current_positions)])
+                    else:
+                        current_positions.append(2048.0)
+        
+        positions_array = np.array(current_positions)
+        
+        # Apply exponential smoothing (like original Gello)
+        if self._last_joint_positions is None:
+            self._last_joint_positions = positions_array
+        else:
+            # Exponential smoothing: new_pos = last_pos * (1 - alpha) + current_pos * alpha
+            positions_array = (
+                self._last_joint_positions * (1 - self._smoothing_alpha) +
+                positions_array * self._smoothing_alpha
+            )
+            self._last_joint_positions = positions_array
+        
+        return positions_array
+    
     def calibrate_motors(self, **kwargs: Any) -> None:
         """
         Calibrate the motors.
         """
         return None
+    
+    def get_observation(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Override to avoid reading from hardware during active control loops.
+        This prevents race conditions when recorder reads while leader-follower is active.
+        """
+        # Check if any control loop is active (leader-follower, AI, VR)
+        # If so, read from simulation to avoid Dynamixel communication conflicts
+        from phosphobot.endpoints.control import (
+            signal_ai_control,
+            signal_leader_follower,
+            signal_vr_control,
+        )
+        
+        if (
+            signal_ai_control.is_in_loop()
+            or signal_leader_follower.is_in_loop()
+            or signal_vr_control.is_in_loop()
+        ):
+            # Read from simulation when control loops are active
+            joints_position = self.read_joints_position(unit="rad", source="sim")
+            # For leader arm, state is just joints (no TCP pose needed)
+            state = joints_position[:6] if len(joints_position) > 6 else joints_position
+            return state, joints_position
+        
+        # Otherwise use base class implementation (reads from hardware)
+        return super().get_observation()
 
     async def calibrate(self) -> tuple[Literal["success", "in_progress", "error"], str]:
         """

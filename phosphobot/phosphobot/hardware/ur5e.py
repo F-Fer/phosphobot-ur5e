@@ -77,6 +77,8 @@ class UR5eHardware(BaseManipulator):
         self.num_actuated_joints = len(self.SERVO_IDS)
         # Serialize RTDE commands to avoid concurrent control threads
         self._rtde_lock = threading.Lock()
+        # Separate lock for gripper socket communication (Robotiq uses separate socket)
+        self._gripper_lock = threading.Lock()
 
     def preempt_motion(self) -> None:
         """
@@ -193,16 +195,15 @@ class UR5eHardware(BaseManipulator):
         joint angles for both entries.
         """
         if self.is_connected and self.rtde_rec is not None:
-            with self._rtde_lock:
-                # First get the joint positions
-                joints_position = np.asarray(self.rtde_rec.getActualQ(), dtype=float)
-                gripper_position = self.gripper.get_current_position()/255
+            # First get the joint positions
+            joints_position = np.asarray(self.rtde_rec.getActualQ(), dtype=float)
+            gripper_position = self.gripper.get_current_position()/255
 
-                joints_position = np.append(joints_position, gripper_position)
-                # Then get the state
-                tcp_pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
+            joints_position = np.append(joints_position, gripper_position)
+            # Then get the state
+            tcp_pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
 
-                state = np.append(tcp_pose, gripper_position)
+            state = np.append(tcp_pose, gripper_position)
         else:
             # Read from simulation if not connected
             joints_position = self.read_joints_position(unit="rad", source="sim")
@@ -223,7 +224,8 @@ class UR5eHardware(BaseManipulator):
             return
         # Convert orientation to rotation vector (UR expects rotvec)
         if target_orientation_rad is None and self.rtde_rec is not None:
-            curr = self.rtde_rec.getActualTCPPose()
+            with self._rtde_lock:
+                curr = self.rtde_rec.getActualTCPPose()
             rx, ry, rz = curr[3], curr[4], curr[5]
         else:
             rotvec = R.from_euler("xyz", target_orientation_rad).as_rotvec() if target_orientation_rad is not None else np.zeros(3)
@@ -256,7 +258,8 @@ class UR5eHardware(BaseManipulator):
             await self.move_robot_absolute(new_pos, new_euler)
             return
 
-        curr = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
+        with self._rtde_lock:
+            curr = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
         pos = curr[:3]
         rotvec = curr[3:6]
 
@@ -309,10 +312,12 @@ class UR5eHardware(BaseManipulator):
         q_home = np.array(q_home)
         self.preempt_motion()
         self._moveJ(q_home)
-        self.gripper.activate(auto_calibrate=True)
+        with self._gripper_lock:
+            self.gripper.activate(auto_calibrate=True)
 
         if self.rtde_rec is not None:
-            pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
+            with self._rtde_lock:
+                pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
             position = pose[:3]
             euler_xyz = R.from_rotvec(pose[3:6]).as_euler("xyz")
             self.initial_position = position
@@ -324,11 +329,14 @@ class UR5eHardware(BaseManipulator):
             return
         self.preempt_motion()
         self._moveJ(self.SLEEP_POSITION)
-        self._moveGripper(self.gripper.get_open_position())
+        with self._gripper_lock:
+            open_pos = self.gripper.get_open_position()
+        self._moveGripper(open_pos)
 
     def forward_kinematics(self, sync_robot_pos: bool = False) -> tuple[np.ndarray, np.ndarray]:
         if self.is_connected and self.rtde_rec is not None:
-            pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
+            with self._rtde_lock:
+                pose = np.asarray(self.rtde_rec.getActualTCPPose(), dtype=float)
             position = pose[:3]
             euler_xyz = R.from_rotvec(pose[3:6]).as_euler("xyz")
             return position, euler_xyz
@@ -370,25 +378,27 @@ class UR5eHardware(BaseManipulator):
             target_gripper_position = int(grip_cmd * 255)
 
         # Stream joint targets using servoJ for responsive, non-blocking tracking
-        if self.rtde_ctrl is not None:
+        try:
             with self._rtde_lock:
-                try:
-                    t_start = self.rtde_ctrl.initPeriod()
-                    # servoJ(q, a, v, t=0, lookahead_time=0.1, gain=300)
-                    self.rtde_ctrl.servoJ(
-                        arm_q,
-                        float(self.acc),
-                        float(self.speed),
-                        float(self.servoj_t),
-                        float(self.servoj_lookahead),
-                        int(self.servoj_gain),
-                    )
-                    self.rtde_ctrl.waitPeriod(t_start)
-                except Exception as e:
-                    logger.warning(f"servoJ failed: {e}")
-        if target_gripper_position is not None:
-            self._moveGripper(target_gripper_position)
-    
+                t_start = self.rtde_ctrl.initPeriod()
+                # servoJ(q, a, v, t=0, lookahead_time=0.1, gain=300)
+                self.rtde_ctrl.servoJ(
+                    arm_q,
+                    float(self.acc),
+                    float(self.speed),
+                    float(self.servoj_t),
+                    float(self.servoj_lookahead),
+                    int(self.servoj_gain),
+                )
+            # Move gripper outside the RTDE lock to avoid blocking other RTDE operations
+            if target_gripper_position is not None:
+                self._moveGripper(target_gripper_position)
+            # waitPeriod outside lock - it's just a sleep, doesn't access RTDE
+            with self._rtde_lock:
+                self.rtde_ctrl.waitPeriod(t_start)
+        except Exception as e:
+            logger.warning(f"servoJ failed: {e}")
+        
     # Private methods
     def _moveJ(self, q_target_rad: np.ndarray) -> None:
         """
@@ -422,7 +432,9 @@ class UR5eHardware(BaseManipulator):
             or abs(target_gripper_position - self._last_gripper_pos) >= self._gripper_min_delta
         ) and (now - self._last_gripper_cmd_time) >= self._gripper_min_period_s:
             try:
-                self.gripper.move(target_gripper_position, self.gripper_speed, self.gripper_force)
+                # Use gripper lock since gripper has its own socket communication
+                with self._gripper_lock:
+                    self.gripper.move(target_gripper_position, self.gripper_speed, self.gripper_force)
                 self._last_gripper_pos = target_gripper_position
                 self._last_gripper_cmd_time = now
             except Exception as e:
