@@ -34,7 +34,7 @@ try:
             self.server_url = server_url
             self.server_port = server_port
             self.required_input_keys: List[str] = ["images", "state", "prompt"]
-            self.image_keys = ["observation/exterior_image_1_left", "observation/wrist_image_left"]
+            self.image_keys = ["observation/exterior_image_1_left", "observation/exterior_image_1_right","observation/wrist_image_left", "observation/wrist_image_right"]
 
             # Instantiate the client
             try:
